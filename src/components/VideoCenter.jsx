@@ -16,13 +16,13 @@ import { saveAs } from "file-saver";
  * As URLs geradas respeitam import.meta.env.BASE_URL (útil para GitHub Pages).
  */
 
-// Se não existir manifest.json, edite esta lista com os nomes dos seus vídeos:
+// Se não existir manifest.json, usa esta lista:
 const HARDCODED_FILES = [
-  // "Datas personalizadas.mp4",
-  // "Instação cardapinho (comprimido).mp4",
-  // "associar codigo interno com pdv do ifood.mp4",
-  // "reinstalar-o-cardapinho (comprimido).mp4",
-  // "sangria pagamento, financeiro.mp4",
+  "Datas personalizadas.mp4",
+  "Instação cardapinho (comprimido).mp4",
+  "associar codigo interno com pdv do ifood.mp4",
+  "reinstalar-o-cardapinho (comprimido).mp4",
+  "sangria pagamento, financeiro..mp4",
 ];
 
 function byExtToMime(name = "") {
@@ -86,7 +86,7 @@ export default function VideoCenter() {
         }));
 
         if (!cancelled) setVideos(list);
-      } catch (e) {
+      } catch {
         if (!cancelled) {
           setError("Não foi possível carregar a lista de vídeos.");
           setVideos([]);
