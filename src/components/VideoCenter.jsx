@@ -3,20 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 
-/**
- * VideoCenter — versão para public/videos
- *
- * Como não dá para "listar diretório" diretamente no front-end estático,
- * usamos duas estratégias:
- * 1) (Preferível) public/videos/manifest.json   ← um array de nomes de arquivos
- *    Ex.: ["aula1.mp4","tutorial.webm"]
- * 2) (Fallback) uma lista local EDITÁVEL abaixo (HARDCODED_FILES)
- *
- * Os arquivos devem ficar em: public/videos/SEUS_ARQUIVOS.mp4
- * As URLs geradas respeitam import.meta.env.BASE_URL (útil para GitHub Pages).
- */
-
-// Se não existir manifest.json, usa esta lista:
 const HARDCODED_FILES = [
   "Datas personalizadas.mp4",
   "Instação cardapinho (comprimido).mp4",
