@@ -370,9 +370,6 @@ export default function App() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-[#9D00FF] to-[#B84CFF] bg-clip-text text-transparent">
             Ferramentas Internas CW
           </h1>
-          <div className="text-sm text-gray-300 font-medium px-4 py-2 rounded-full border border-gray-700 bg-gray-800/60">
-            React + Tailwind + Utils
-          </div>
         </div>
       </header>
 
