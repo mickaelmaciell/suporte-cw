@@ -382,7 +382,7 @@ export default function App() {
               <span className="text-2xl">📋</span>
             </div>
             <div>
-              <h2 className="text-2xl font-bold">Tratador de CSV — Telefones BR</h2>
+              <h2 className="text-2xl font-bold">Tratador de CSV — Telefones BR (APENAS NOME E NUMERO)</h2>
               <p className="text-gray-300 text-sm mt-1">
                 Processa e valida números brasileiros. Divide em partes (5.000) automaticamente.
               </p>
@@ -416,31 +416,6 @@ export default function App() {
               </div>
             </div>
           </div>
-
-          {/* Prévia */}
-          {rawPreview.length > 0 && (
-            <div className="mb-8">
-              <h3 className="text-lg font-semibold mb-4">Prévia (primeiras linhas)</h3>
-              <div className="overflow-auto rounded-xl border border-gray-700 bg-gray-800/50">
-                <table className="min-w-full text-sm">
-                  <tbody>
-                    {rawPreview.map((r, idx) => (
-                      <tr key={idx} className="odd:bg-gray-700/30 even:bg-gray-800/30">
-                        {r.map((c, i) => (
-                          <td
-                            key={i}
-                            className="px-4 py-3 border-r border-gray-700 last:border-r-0 text-gray-200"
-                          >
-                            {String(c)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
 
           {/* Relatório + Exportar */}
           <div className="grid lg:grid-cols-2 gap-8">
