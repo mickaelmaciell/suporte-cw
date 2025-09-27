@@ -1,4 +1,3 @@
-// src/components/VideoCenter.jsx
 import { useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -38,6 +37,55 @@ function buildUrlFromPublic(name) {
   console.debug("[VideoCenter] buildUrlFromPublic()", { base, name, encoded, url });
   return url;
 }
+
+// Componente Modal customizado seguindo o padrão da aplicação
+const VideoModal = ({ isOpen, onClose, video }) => {
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    if (isOpen) {
+      window.addEventListener("keydown", handleEscape);
+    }
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !video) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 mx-4 w-full max-w-4xl rounded-3xl bg-white/80 dark:bg-black/40 border border-purple-300/50 dark:border-purple-500/30 backdrop-blur-xl shadow-[0_8px_32px_rgba(139,92,246,0.3)] max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="flex items-start justify-between p-6 border-b border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/80 backdrop-blur-lg">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-xl font-bold text-gray-800 dark:text-white truncate">
+              🎥 {video.name}
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 break-all">
+              {video.url}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="ml-4 px-4 py-2 bg-gray-200 dark:bg-slate-600/60 hover:bg-gray-300 dark:hover:bg-slate-600/80 text-gray-700 dark:text-white rounded-xl font-medium transition-all duration-200 border border-gray-300 dark:border-slate-500/30"
+          >
+            Fechar (Esc)
+          </button>
+        </div>
+        <div className="flex-1 bg-black flex items-center justify-center">
+          <video
+            key={video.url}
+            src={video.url}
+            controls
+            className="w-full h-full max-h-[70vh] object-contain"
+            onError={(e) => console.error("[VideoCenter] player onError", video, e)}
+            onLoadedData={() => console.debug("[VideoCenter] player loaded", video)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function VideoCenter() {
   const [videos, setVideos] = useState([]); // [{name,url,size,type}]
@@ -90,7 +138,7 @@ export default function VideoCenter() {
             console.error("[VideoCenter] JSON parse error:", e);
           }
         } else {
-          setNotes((n) => [...n, `manifest.json não encontrado (status ${res.status}) — usando fallback`]);
+          setNotes((n) => [...n, `manifest.json não encontrado (status ${res.status}) -- usando fallback`]);
           console.info("[VideoCenter] manifest não encontrado. Fallback.");
         }
       } catch (err) {
@@ -220,198 +268,231 @@ export default function VideoCenter() {
     setViewerVideo(v);
     setViewerOpen(true);
   }
+
   function closeViewer() {
     console.info("[VideoCenter] closeViewer");
     setViewerOpen(false);
     setViewerVideo(null);
   }
 
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === "Escape") {
-        console.debug("[VideoCenter] ESC -> closeViewer");
-        closeViewer();
-      }
-    }
-    if (viewerOpen) window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [viewerOpen]);
-
   return (
-    <section className="rounded-2xl border border-purple-500/20 bg-gray-900/60 p-8 shadow-[0_0_30px_rgba(157,0,255,0.15)] backdrop-blur-md space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-500 flex items-center justify-center">
-          <span className="text-2xl">🎥</span>
+    <section className="rounded-3xl p-8 border backdrop-blur-xl bg-white/80 dark:bg-black/40 border-purple-300/50 dark:border-purple-500/30 shadow-[0_8px_32px_rgba(139,92,246,0.2)] hover:shadow-[0_12px_48px_rgba(139,92,246,0.3)] transition-all duration-300">
+      {/* Header */}
+      <div className="flex items-center gap-6 mb-10">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-gradient-to-br from-purple-500 via-violet-600 to-purple-700 shadow-lg shadow-purple-500/30 border border-purple-400/30">
+          <span className="text-3xl">🎥</span>
         </div>
-        <h2 className="text-2xl font-bold text-white">Central de Vídeos</h2>
+        <div>
+          <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
+            Central de Vídeos
+          </h2>
+          <p className="text-gray-600 dark:text-gray-300 text-lg mt-2">
+            Biblioteca de vídeos de treinamento e materiais de suporte
+          </p>
+        </div>
       </div>
 
-      {/* Debug header */}
-      <div className="text-xs text-gray-300 grid md:grid-cols-2 gap-3 p-3 rounded-lg border border-gray-700 bg-gray-800/40">
-        <div className="space-y-1">
-          <div><b>Versão:</b> {VERSION}</div>
-          <div><b>BASE_URL:</b> {import.meta.env.BASE_URL || "/"}</div>
-          <div><b>Manifest URL:</b> {(import.meta.env.BASE_URL || "/") + "videos/manifest.json"}</div>
-          <div><b>Arquivos na lista final:</b> {videos.length}</div>
-          {notes.length > 0 && (
-            <div className="text-amber-300"><b>Notas:</b> {notes.join(" · ")}</div>
-          )}
+      {/* Debug Info */}
+      <details className="rounded-2xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 p-6 backdrop-blur-lg mb-6">
+        <summary className="cursor-pointer font-medium text-gray-800 dark:text-white text-lg">
+          🔧 Informações de Debug
+        </summary>
+        <div className="mt-6 grid md:grid-cols-2 gap-6">
+          <div className="space-y-3">
+            <div className="rounded-lg border border-gray-300/50 dark:border-gray-600/50 bg-gray-100/80 dark:bg-slate-700/40 p-4">
+              <h4 className="font-semibold text-gray-800 dark:text-white mb-3">Configuração</h4>
+              <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
+                <div><strong>Versão:</strong> {VERSION}</div>
+                <div><strong>BASE_URL:</strong> {import.meta.env.BASE_URL || "/"}</div>
+                <div><strong>Manifest URL:</strong> {(import.meta.env.BASE_URL || "/") + "videos/manifest.json"}</div>
+                <div><strong>Arquivos na lista final:</strong> {videos.length}</div>
+              </div>
+              {notes.length > 0 && (
+                <div className="mt-3 p-3 rounded-lg bg-amber-100/80 dark:bg-amber-900/30 border border-amber-300/50 dark:border-amber-500/30">
+                  <div className="text-sm font-medium text-amber-800 dark:text-amber-200">Notas:</div>
+                  <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                    {notes.join(" · ")}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="space-y-3">
+            <details className="rounded-lg border border-gray-300/50 dark:border-gray-600/50 bg-gray-100/80 dark:bg-slate-700/40 p-4">
+              <summary className="cursor-pointer font-semibold text-gray-800 dark:text-white">Manifest (raw)</summary>
+              <pre className="mt-3 max-h-40 overflow-auto p-3 bg-black/40 dark:bg-black/60 rounded border border-gray-300 dark:border-gray-600 text-xs text-gray-200 whitespace-pre-wrap">
+                {manifestRaw || "(vazio ou 404)"}
+              </pre>
+            </details>
+            <details className="rounded-lg border border-gray-300/50 dark:border-gray-600/50 bg-gray-100/80 dark:bg-slate-700/40 p-4">
+              <summary className="cursor-pointer font-semibold text-gray-800 dark:text-white">Manifest (array)</summary>
+              <pre className="mt-3 max-h-40 overflow-auto p-3 bg-black/40 dark:bg-black/60 rounded border border-gray-300 dark:border-gray-600 text-xs text-gray-200">
+                {JSON.stringify(manifestArray, null, 2)}
+              </pre>
+            </details>
+            <details className="rounded-lg border border-gray-300/50 dark:border-gray-600/50 bg-gray-100/80 dark:bg-slate-700/40 p-4">
+              <summary className="cursor-pointer font-semibold text-gray-800 dark:text-white">Lista final</summary>
+              <pre className="mt-3 max-h-40 overflow-auto p-3 bg-black/40 dark:bg-black/60 rounded border border-gray-300 dark:border-gray-600 text-xs text-gray-200">
+                {JSON.stringify(videos.map(v => v.name), null, 2)}
+              </pre>
+            </details>
+          </div>
         </div>
-        <div className="space-y-1">
-          <details>
-            <summary className="cursor-pointer text-gray-200">Manifest (raw)</summary>
-            <pre className="mt-2 max-h-40 overflow-auto p-2 bg-black/40 rounded border border-gray-700 whitespace-pre-wrap">
-{manifestRaw || "(vazio ou 404)"}
-            </pre>
-          </details>
-          <details className="mt-2">
-            <summary className="cursor-pointer text-gray-200">Manifest (array)</summary>
-            <pre className="mt-2 max-h-40 overflow-auto p-2 bg-black/40 rounded border border-gray-700">
-{JSON.stringify(manifestArray, null, 2)}
-            </pre>
-          </details>
-          <details className="mt-2">
-            <summary className="cursor-pointer text-gray-200">Lista final</summary>
-            <pre className="mt-2 max-h-40 overflow-auto p-2 bg-black/40 rounded border border-gray-700">
-{JSON.stringify(videos.map(v => v.name), null, 2)}
-            </pre>
-          </details>
-        </div>
-      </div>
+      </details>
 
       {error && (
-        <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+        <div className="rounded-xl border border-red-300/60 dark:border-red-500/40 bg-red-100/80 dark:bg-red-600/20 text-red-700 dark:text-red-200 p-4 text-sm mb-6">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="text-sm text-gray-300">Carregando lista...</div>
+        <div className="rounded-2xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 p-8 backdrop-blur-lg text-center">
+          <div className="w-12 h-12 border-4 border-purple-200 dark:border-purple-700 border-t-purple-600 dark:border-t-purple-400 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-300">Carregando lista de vídeos...</p>
+        </div>
       ) : videos.length === 0 ? (
-        <div className="text-sm text-gray-300 space-y-2">
-          <p>
-            Nenhum arquivo encontrado. Coloque seus vídeos em{" "}
-            <code className="px-1 rounded bg-gray-800 border border-gray-700 text-gray-200">public/videos/</code>.
-          </p>
-          <p>
-            Para listar automaticamente, crie{" "}
-            <code className="px-1 rounded bg-gray-800 border border-gray-700 text-gray-200">public/videos/manifest.json</code>.
-          </p>
+        <div className="rounded-2xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 p-8 backdrop-blur-lg text-center">
+          <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">📂</span>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">Nenhum vídeo encontrado</h3>
+          <div className="text-gray-600 dark:text-gray-300 space-y-2 max-w-md mx-auto">
+            <p>
+              Coloque seus vídeos em{" "}
+              <code className="px-2 py-1 rounded bg-purple-100 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-500/30 text-purple-600 dark:text-purple-400">public/videos/</code>
+            </p>
+            <p>
+              Para listar automaticamente, crie{" "}
+              <code className="px-2 py-1 rounded bg-purple-100 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-500/30 text-purple-600 dark:text-purple-400">public/videos/manifest.json</code>
+            </p>
+          </div>
         </div>
       ) : (
-        <>
-          <div className="rounded-xl overflow-hidden border border-gray-700">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-800/70 text-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 border-r border-gray-700">Arquivo</th>
-                  <th className="text-left px-4 py-3 border-r border-gray-700">Tamanho</th>
-                  <th className="text-left px-4 py-3">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {videos.map((v, idx) => (
-                  <tr key={idx} className="odd:bg-gray-900/40 even:bg-gray-900/20 text-gray-200">
-                    <td className="px-4 py-3 border-r border-gray-800 align-top">
-                      <button
-                        onClick={() => openViewer(v)}
-                        className="font-medium text-fuchsia-300 hover:text-fuchsia-200 underline-offset-2 hover:underline"
-                        title="Assistir"
-                      >
-                        {v.name}
-                      </button>
-                      <div className="text-xs text-gray-400 break-all mt-1">{v.url}</div>
-                    </td>
-                    <td className="px-4 py-3 border-r border-gray-800 align-top">
-                      {loadingSizes ? "…" : humanSize(v.size)}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <a
-                          href={v.url}
-                          download={v.name}
-                          onClick={() => console.debug("[VideoCenter] click Baixar", v)}
-                          className="inline-flex items-center rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700"
-                        >
-                          Baixar
-                        </a>
-                        <button
-                          onClick={() => openViewer(v)}
-                          className="inline-flex items-center rounded-lg bg-violet-600 hover:bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white"
-                        >
-                          Assistir
-                        </button>
-                        {/* Mini preview com cache busting */}
-                        <button
-                          onClick={() => openViewer(v)}
-                          className="rounded border border-gray-700 overflow-hidden"
-                          title="Pré-visualizar"
-                        >
-                          <video
-                            src={v.previewUrl}
-                            className="h-12 w-24 object-cover bg-black"
-                            muted
-                            preload="metadata"
-                            onError={(e) => console.error("[VideoCenter] preview onError", v, e)}
-                            onLoadedData={() => console.debug("[VideoCenter] preview loaded", v)}
-                          />
-                        </button>
-                      </div>
-                    </td>
+        <div className="space-y-6">
+          {/* Tabela de Vídeos */}
+          <div className="rounded-2xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 p-6 backdrop-blur-lg">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-white">
+                📋 Lista de Vídeos ({videos.length})
+              </h3>
+              <div className="text-sm text-gray-600 dark:text-gray-300">
+                <strong>Tamanho total:</strong> {loadingSizes ? "Calculando..." : humanSize(totalSize)}
+              </div>
+            </div>
+
+            <div className="overflow-auto rounded-xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 backdrop-blur-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-purple-100/80 dark:bg-slate-700/60">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-800 dark:text-white border-r border-gray-200/50 dark:border-gray-600/50">
+                      Arquivo
+                    </th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-800 dark:text-white border-r border-gray-200/50 dark:border-gray-600/50 w-32">
+                      Tamanho
+                    </th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-800 dark:text-white w-80">
+                      Ações
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-gray-800/70 text-gray-200">
-                <tr>
-                  <td className="px-4 py-3 font-medium">Total</td>
-                  <td className="px-4 py-3 font-medium">{loadingSizes ? "…" : humanSize(totalSize)}</td>
-                  <td className="px-4 py-3" />
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {videos.map((v, idx) => (
+                    <tr key={idx} className="border-t border-gray-200/50 dark:border-gray-600/50 hover:bg-gray-50/80 dark:hover:bg-slate-700/40 transition-colors">
+                      <td className="px-4 py-4 border-r border-gray-200/50 dark:border-gray-600/50">
+                        <button
+                          onClick={() => openViewer(v)}
+                          className="font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:underline text-left"
+                          title="Assistir vídeo"
+                        >
+                          {v.name}
+                        </button>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 break-all mt-1 max-w-md">
+                          {v.url}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 border-r border-gray-200/50 dark:border-gray-600/50 text-gray-700 dark:text-gray-200 font-medium">
+                        {loadingSizes ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-purple-200 border-t-purple-600 rounded-full animate-spin"></div>
+                            <span className="text-xs">...</span>
+                          </div>
+                        ) : (
+                          humanSize(v.size)
+                        )}
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <a
+                            href={v.url}
+                            download={v.name}
+                            onClick={() => console.debug("[VideoCenter] click Baixar", v)}
+                            className="inline-flex items-center gap-2 rounded-lg bg-gray-200 dark:bg-slate-600/60 hover:bg-gray-300 dark:hover:bg-slate-600/80 text-gray-700 dark:text-white px-3 py-2 text-xs font-medium transition-all duration-200 border border-gray-300 dark:border-slate-500/30"
+                          >
+                            📥 Baixar
+                          </a>
+                          <button
+                            onClick={() => openViewer(v)}
+                            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white px-3 py-2 text-xs font-medium transition-all duration-200 shadow-lg"
+                          >
+                            ▶️ Assistir
+                          </button>
+                          {/* Mini preview */}
+                          <button
+                            onClick={() => openViewer(v)}
+                            className="rounded-lg border border-purple-300/50 dark:border-purple-500/30 overflow-hidden hover:border-purple-400 dark:hover:border-purple-400 transition-colors"
+                            title="Pré-visualizar vídeo"
+                          >
+                            <video
+                              src={v.previewUrl}
+                              className="h-12 w-20 object-cover bg-black"
+                              muted
+                              preload="metadata"
+                              onError={(e) => console.error("[VideoCenter] preview onError", v, e)}
+                              onLoadedData={() => console.debug("[VideoCenter] preview loaded", v)}
+                            />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-gray-400">Arquivos listados: {videos.length}</div>
-            <button
-              onClick={downloadZip}
-              className="inline-flex items-center rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow"
-            >
-              Baixar tudo (.zip)
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Modal */}
-      {viewerOpen && viewerVideo && (
-        <div className="fixed inset-0 z-[60]">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeViewer} />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-3xl rounded-2xl border border-purple-500/30 bg-gray-900 shadow-[0_0_35px_rgba(157,0,255,0.35)] overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-                <div className="min-w-0">
-                  <h3 className="text-white font-semibold truncate">{viewerVideo.name}</h3>
-                  <p className="text-xs text-gray-400">{viewerVideo.url}</p>
-                </div>
-                <button onClick={closeViewer} className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-800">
-                  Fechar
-                </button>
+          {/* Ações Gerais */}
+          <div className="rounded-2xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 p-6 backdrop-blur-lg">
+            <div className="flex items-center justify-between">
+              <div className="text-gray-600 dark:text-gray-300">
+                <span className="text-sm">
+                  📊 <strong>{videos.length}</strong> vídeos disponíveis
+                  {totalSize > 0 && (
+                    <> • <strong>{humanSize(totalSize)}</strong> total</>
+                  )}
+                </span>
               </div>
-              <div className="bg-black">
-                <video
-                  key={viewerVideo.url}
-                  src={viewerVideo.url}
-                  controls
-                  className="mx-auto w-full max-h-[70vh]"
-                  onError={(e) => console.error("[VideoCenter] player onError", viewerVideo, e)}
-                  onLoadedData={() => console.debug("[VideoCenter] player loaded", viewerVideo)}
-                />
-              </div>
+              <button
+                onClick={downloadZip}
+                disabled={!videos.length || loadingSizes}
+                className={`inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold transition-all duration-300 ${!videos.length || loadingSizes
+                    ? "bg-gray-300/60 dark:bg-slate-600/40 text-gray-500 dark:text-slate-400 cursor-not-allowed"
+                    : "bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white shadow-[0_8px_32px_rgba(16,185,129,0.35)] hover:shadow-[0_12px_48px_rgba(16,185,129,0.5)] transform hover:scale-[1.02]"
+                  }`}
+              >
+                📦 Baixar tudo (.zip)
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Modal de Video */}
+      <VideoModal
+        isOpen={viewerOpen}
+        onClose={closeViewer}
+        video={viewerVideo}
+      />
     </section>
   );
 }

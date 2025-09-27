@@ -1,3 +1,54 @@
+/* 1) IMPORTS DEVEM VIR PRIMEIRO */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
-/* seu css extra aqui */
+/* 2) Torna o `dark:` baseado em classe .dark (estratégia por classe no Tailwind v4) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 3) Tema e animações */
+@theme {
+  --color-primary: #8b5cf6;
+  --color-primary-dark: #7c3aed;
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0) }
+    50% { transform: translateY(-10px) }
+  }
+}
+
+/* 4) Globais */
+* { font-family: 'Inter', sans-serif; }
+
+/* Links de navegação */
+.nav-link { transition: all .3s ease }
+.nav-link:hover {
+  background: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  color: white;
+}
+.nav-link.active,
+a[aria-current="page"].nav-link {
+  background: color-mix(in srgb, var(--color-primary) 80%, transparent);
+  color: white;
+}
+
+/* Gradiente do título + fallback */
+.text-gradient {
+  background: linear-gradient(to right, var(--color-primary-dark), var(--color-primary), var(--color-primary-dark));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.dark .text-gradient {
+  background: linear-gradient(to right, #a855f7, #c084fc, #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+@supports not (-webkit-background-clip: text) {
+  .text-gradient { color: var(--color-primary-dark) !important; background: none !important; -webkit-text-fill-color: unset !important; }
+  .dark .text-gradient { color: #a855f7 !important; }
+}
+
+/* Utilidade opcional */
+.animate-float { animation: float 6s ease-in-out infinite }
