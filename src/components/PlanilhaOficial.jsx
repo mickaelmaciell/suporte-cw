@@ -12,13 +12,19 @@ function onlyDigits(v) {
   return softTrim(v).replace(/\D/g, "");
 }
 
-/* ========== Config de telefone ========== */
-/** Se quiser aceitar fixo (10 dígitos iniciando em 2-5), mude para true */
+/* ========== Config de telefone (incrementos sem afrouxar regras) ========== */
+/** NÃO permitir fixo (mantido) */
 const ALLOW_LANDLINE = false;
+/** Inserir '9' quando vierem 10 dígitos (compatível com seu código antigo) */
+const INFER_MISSING_9 = true;
+/** Validar DDD estritamente? (mantemos desativado para não derrubar válidos) */
+const STRICT_DDD = false;
+/** Rejeitar sequências óbvias 000..., 111... (opcional; ligado) */
+const REJECT_OBVIOUS_FAKE = true;
 /** Modo de saída do telefone: "br" | "digits" | "e164" */
 const PHONE_OUT_MODE = "br";
 
-/* ========== DDDs válidos no Brasil ========== */
+/* ========== DDDs válidos (usado só se STRICT_DDD=true) ========== */
 const VALID_DDDS = new Set([
   "11","12","13","14","15","16","17","18","19",
   "21","22","24","27","28",
@@ -40,45 +46,34 @@ function isObviousFake(s) {
   return false;
 }
 
-/* ========== Telefones BR (fixo e móvel) ========== */
-function isValidBrazilianNumber(number, { allowLandline = ALLOW_LANDLINE } = {}) {
+/* ========== Normalização + Validação (mobile only) ========== */
+function normalizeMobileDigits(number) {
   let s = onlyDigits(number);
   if (s.startsWith("55")) s = s.slice(2);
-  if (s.length !== 10 && s.length !== 11) return false;
-
+  if (INFER_MISSING_9 && s.length === 10) {
+    s = s.slice(0, 2) + "9" + s.slice(2);
+  }
+  return s;
+}
+function isValidBrazilianMobile(number) {
+  const s = normalizeMobileDigits(number);
+  if (s.length !== 11) return false;
   const ddd = s.slice(0, 2);
   const subscriber = s.slice(2);
-
-  if (!VALID_DDDS.has(ddd)) return false;
-  if (isObviousFake(s) || isObviousFake(subscriber)) return false;
-
-  if (s.length === 11) {
-    // celular deve iniciar com 9 após o DDD
-    return subscriber[0] === "9";
-  } else {
-    // fixo: só se permitido e iniciando com [2-5]
-    if (!allowLandline) return false;
-    return /[2-5]/.test(subscriber[0]);
-  }
+  if (STRICT_DDD && !VALID_DDDS.has(ddd)) return false;
+  if (REJECT_OBVIOUS_FAKE && (isObviousFake(s) || isObviousFake(subscriber))) return false;
+  return subscriber[0] === "9"; // só celular
 }
-
 function formatBrazilianNumber(number, mode = PHONE_OUT_MODE) {
-  let s = onlyDigits(number);
-  if (s.startsWith("55")) s = s.slice(2);
-
-  if (mode === "digits") return s;
-  if (mode === "e164") return "+55" + s;
-
-  if (s.length === 11) {
-    return `(${s.slice(0, 2)})${s.slice(2, 7)}-${s.slice(7)}`;
-  }
-  if (s.length === 10) {
-    return `(${s.slice(0, 2)})${s.slice(2, 6)}-${s.slice(6)}`;
-  }
-  return null;
+  let s = normalizeMobileDigits(number);
+  if (mode === "digits") return s || "";
+  if (mode === "e164") return s ? "+55" + s : "";
+  if (s.length === 11) return `(${s.slice(0, 2)})${s.slice(2, 7)}-${s.slice(7)}`;
+  if (s.length === 10) return `(${s.slice(0, 2)})${s.slice(2, 6)}-${s.slice(6)}`;
+  return "";
 }
 
-/* ========== Email & Pontos ========== */
+/* ========== Email & Pontos (campos não deletam linha) ========== */
 function isValidEmail(email) {
   const e = softTrim(email);
   if (!e) return true; // vazio é permitido
@@ -87,8 +82,7 @@ function isValidEmail(email) {
 function normalizePoints(points) {
   const raw = softTrim(points);
   if (!raw) return "";
-  const digits = raw.replace(/\D/g, "");
-  return digits; // pode ser "" se não tiver dígitos
+  return raw.replace(/\D/g, ""); // apenas dígitos
 }
 
 /* ========== Delimitador ========== */
@@ -120,15 +114,16 @@ const MODEL_HEADERS = [
   "Estado",
 ];
 
-/* ========== Aliases de cabeçalho (1 telefone; inclui sinônimos de WhatsApp como telefone) ========== */
+/* ========== Aliases (Telefone + WhatsApp — fallback) ========== */
 const HEADER_ALIASES = {
   nome: [
     "nome","name","cliente","full name","nome completo","nome do cliente","cliente_nome","nomecliente"
   ],
   telefone: [
-    "telefone","celular","phone","telefone1","tel","fone","whatsapp","whats","zap","wa",
-    "mobile","cellphone","cell","contato","movel","telemovel","número","numero","telefone 1","telefone principal"
+    "telefone","celular","phone","telefone1","tel","fone","mobile","cellphone","cell","contato",
+    "movel","telemovel","número","numero","telefone 1","telefone principal"
   ],
+  whatsapp: ["whatsapp","whats","zap","wa","whatsapp1","zap1"],
   email: ["email","e-mail","mail","e mail","email1","email principal"],
   pontos: [
     "pontos do fidelidade","pontos","fidelidade","pontuacao","pontuação","pontos_fidelidade",
@@ -136,7 +131,7 @@ const HEADER_ALIASES = {
   ],
 };
 
-/* ========== Mapear índices por cabeçalho ========== */
+/* ========== Mapear índices por cabeçalho (com WA fallback) ========== */
 function mapHeaderIndexes(headerRow = []) {
   const lowered = headerRow.map((c) =>
     softTrim(c).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -150,13 +145,19 @@ function mapHeaderIndexes(headerRow = []) {
     return -1;
   };
   const nome = findOne(HEADER_ALIASES.nome);
-  const telefone = findOne(HEADER_ALIASES.telefone);
+  let telefone = findOne(HEADER_ALIASES.telefone);
+  let whatsapp = findOne(HEADER_ALIASES.whatsapp);
+  // Se não houver “telefone”, usa “whatsapp” como principal
+  if (telefone === -1 && whatsapp !== -1) {
+    telefone = whatsapp;
+    whatsapp = -1;
+  }
   const email = findOne(HEADER_ALIASES.email);
   const pontos = findOne(HEADER_ALIASES.pontos);
-  return { nome, telefone, email, pontos };
+  return { nome, telefone, whatsapp, email, pontos };
 }
 
-/* ========== Heurística sem cabeçalho (com confiança) ========== */
+/* ========== Heurística sem cabeçalho ========== */
 const LOW_CONF_THRESHOLD = 0.35;
 
 function guessIndexesByContent(rows, sampleSize = 150) {
@@ -175,22 +176,17 @@ function guessIndexesByContent(rows, sampleSize = 150) {
       const v = softTrim(r[c]);
       if (!v) continue;
 
-      // telefone — forte: passa validação; médio: 10/11 dígitos
       const digits = onlyDigits(v);
       const looks10or11 = digits.startsWith("55")
-        ? digits.slice(2).length === 10 || digits.slice(2).length === 11
-        : digits.length === 10 || digits.length === 11;
-      if (isValidBrazilianNumber(v)) score[c].phone += 6;
+        ? [10, 11].includes(digits.slice(2).length)
+        : [10, 11].includes(digits.length);
+      if (isValidBrazilianMobile(v)) score[c].phone += 6;
       else if (looks10or11) score[c].phone += 3;
       else if (/\d/.test(v)) score[c].phone += 0.2;
 
-      // email
       if (/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(v)) score[c].email += 4;
-
-      // pontos (qualquer dígito conta, colunas muito "numéricas" tendem a ganhar)
       if (digits.length > 0) score[c].points += 1;
 
-      // nome (muitas letras, poucos/nada dígitos, contém espaço com frequência)
       const letters = (v.match(/[A-Za-zÀ-ÿ]/g) || []).length;
       const digitsCount = (v.match(/\d/g) || []).length;
       if (letters >= 3 && digitsCount === 0 && v.length <= 80) score[c].name += 1.2;
@@ -198,10 +194,7 @@ function guessIndexesByContent(rows, sampleSize = 150) {
     }
   }
 
-  const best = (col) =>
-    score
-      .map((s, i) => ({ i, v: s[col] }))
-      .sort((a, b) => b.v - a.v);
+  const best = (col) => score.map((s, i) => ({ i, v: s[col] })).sort((a, b) => b.v - a.v);
 
   const bestPhone  = best("phone");
   const bestEmail  = best("email");
@@ -209,22 +202,23 @@ function guessIndexesByContent(rows, sampleSize = 150) {
   const bestName   = best("name");
 
   const telefone = bestPhone[0]?.i ?? -1;
-  const email    = bestEmail[0]?.i ?? -1;
-  const pontos   = bestPoints[0]?.i ?? -1;
 
-  // Nome sem colidir
-  let nome = -1;
-  for (const cand of bestName) {
-    if (![telefone, email, pontos].includes(cand.i)) {
-      nome = cand.i;
-      break;
-    }
+  // “Whatsapp” como 2º melhor candidato a phone
+  let whatsapp = -1;
+  for (let k = 1; k < bestPhone.length; k++) {
+    if (bestPhone[k].i !== telefone && bestPhone[k].v > 0) { whatsapp = bestPhone[k].i; break; }
   }
 
-  // Confiança simples: (v1 - v2) / (v1 || 1)
+  const email  = bestEmail[0]?.i ?? -1;
+  const pontos = bestPoints[0]?.i ?? -1;
+
+  let nome = -1;
+  for (const cand of bestName) {
+    if (![telefone, whatsapp, email, pontos].includes(cand.i)) { nome = cand.i; break; }
+  }
+
   const conf = (arr) => {
-    const v1 = arr[0]?.v ?? 0;
-    const v2 = arr[1]?.v ?? 0;
+    const v1 = arr[0]?.v ?? 0, v2 = arr[1]?.v ?? 0;
     return v1 <= 0 ? 0 : (v1 - v2) / v1;
   };
   const confidence = {
@@ -234,7 +228,7 @@ function guessIndexesByContent(rows, sampleSize = 150) {
     nome:     conf(bestName),
   };
 
-  return { nome, telefone, email, pontos, confidence };
+  return { nome, telefone, whatsapp, email, pontos, confidence };
 }
 
 /* ========== CSV de saída (modelo oficial) ========== */
@@ -243,17 +237,9 @@ function buildOutputCSV(rows) {
     r.nome ?? "Cliente",
     r.telefone ?? "",
     r.email ?? "",
-    "", // Sexo
-    "", // Data de nascimento
-    "", // Data de cadastro
+    "", "", "", // Sexo, Nascimento, Cadastro
     r.pontos ?? "",
-    "", // Rua
-    "", // Número
-    "", // Complemento
-    "", // Bairro
-    "", // CEP
-    "", // Cidade
-    "", // Estado
+    "", "", "", "", "", "", "" // Endereço
   ]);
   return Papa.unparse({ fields: MODEL_HEADERS, data: padded }, { delimiter: ";" });
 }
@@ -269,15 +255,19 @@ export default function PlanilhaOficial() {
   const [rawPreview, setRawPreview] = useState([]);
   const [allRows, setAllRows] = useState([]);
   const allRowsRef = useRef([]);
+
   const [report, setReport] = useState({
     totalLidas: 0,
     totalValidas: 0,
     deletadas: {
       invalid_telefone: 0,
+      invalid_whatsapp: 0,
+      invalid_both: 0,
       no_valid_number: 0,
       invalid_format: 0,
-      invalid_email: 0,
-      invalid_points: 0,
+      invalid_email: 0,   // não deleta (info)
+      invalid_points: 0,  // não deleta (info)
+      used_whatsapp_fallback: 0, // info
     },
     linhasDeletadas: [],
   });
@@ -306,12 +296,12 @@ export default function PlanilhaOficial() {
   const [mapUI, setMapUI] = useState({
     open: false,
     hasHeader: false,
-    selected: { nome: -1, telefone: -1, email: -1, pontos: -1 },
+    selected: { nome: -1, telefone: -1, whatsapp: -1, email: -1, pontos: -1 },
     options: [],
   });
 
-  /* ======= Mostrar/Esconder métricas de deletados ======= */
-  const [showDeletedSummary, setShowDeletedSummary] = useState(true);
+  /* ======= Mostrar/Esconder métricas — começa escondido ======= */
+  const [showDeletedSummary, setShowDeletedSummary] = useState(false);
 
   const hasResult = useMemo(
     () => Boolean(outputCSV?.length || outputParts.length),
@@ -332,10 +322,13 @@ export default function PlanilhaOficial() {
       totalValidas: 0,
       deletadas: {
         invalid_telefone: 0,
+        invalid_whatsapp: 0,
+        invalid_both: 0,
         no_valid_number: 0,
         invalid_format: 0,
         invalid_email: 0,
         invalid_points: 0,
+        used_whatsapp_fallback: 0,
       },
       linhasDeletadas: [],
     });
@@ -357,10 +350,10 @@ export default function PlanilhaOficial() {
     setMapUI({
       open: false,
       hasHeader: false,
-      selected: { nome: -1, telefone: -1, email: -1, pontos: -1 },
+      selected: { nome: -1, telefone: -1, whatsapp: -1, email: -1, pontos: -1 },
       options: [],
     });
-    setShowDeletedSummary(true);
+    setShowDeletedSummary(false);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -377,19 +370,13 @@ export default function PlanilhaOficial() {
 
   function handleDownloadAllParts() {
     if (!outputParts.length) return;
-    // Dispara um download por parte (baixa "todas as partes juntas" num clique)
     outputParts.forEach((p) => triggerDownloadBlob(p.blob, p.name));
   }
-
   function handleDownloadSingle() {
     if (outputCSV) {
-      triggerDownloadBlob(
-        new Blob([outputCSV], { type: "text/csv;charset=utf-8" }),
-        fileName || "clientes_processados.csv"
-      );
+      triggerDownloadBlob(new Blob([outputCSV], { type: "text/csv;charset=utf-8" }), fileName || "clientes_processados.csv");
     }
   }
-
   function handleDownloadDeleted() {
     if (!deletedParts.length) return;
     deletedParts.forEach((p) => triggerDownloadBlob(p.blob, p.name));
@@ -447,11 +434,7 @@ export default function PlanilhaOficial() {
       }
     }
 
-    setDebug((prev) => ({
-      ...prev,
-      triedDelims: tried,
-      chosenDelimiter: chosen,
-    }));
+    setDebug((prev) => ({ ...prev, triedDelims: tried, chosenDelimiter: chosen }));
 
     if (!rows.length) {
       alertCsvFail();
@@ -477,10 +460,7 @@ export default function PlanilhaOficial() {
     };
     const options = [];
     for (let i = 0; i < width; i++) {
-      options.push({
-        value: i,
-        label: `Col ${i + 1} — ${samples(i) || "(vazio)"}`,
-      });
+      options.push({ value: i, label: `Col ${i + 1} — ${samples(i) || "(vazio)"}` });
     }
     return options;
   }
@@ -495,6 +475,7 @@ export default function PlanilhaOficial() {
       selected: {
         nome: currentMap?.nome ?? -1,
         telefone: currentMap?.telefone ?? -1,
+        whatsapp: currentMap?.whatsapp ?? -1,
         email: currentMap?.email ?? -1,
         pontos: currentMap?.pontos ?? -1,
       },
@@ -509,14 +490,14 @@ export default function PlanilhaOficial() {
   }
 
   function canApplyMap(sel) {
-    // Regras mínimas: Nome e Telefone
-    return sel && sel.nome >= 0 && sel.telefone >= 0;
+    // Mínimo: Nome e (Telefone OU WhatsApp)
+    return sel && sel.nome >= 0 && (sel.telefone >= 0 || sel.whatsapp >= 0);
   }
 
   function applyManualMap() {
     const sel = mapUI.selected;
     if (!canApplyMap(sel)) {
-      alert("Selecione ao menos Nome e Telefone.");
+      alert("Selecione ao menos Nome e Telefone (ou WhatsApp).");
       return;
     }
     const forced = { map: sel, hasHeader: mapUI.hasHeader };
@@ -524,7 +505,7 @@ export default function PlanilhaOficial() {
     setMapUI((p) => ({ ...p, open: false }));
   }
 
-  /* ========== Processamento (com try/catch e debug de erro) ========== */
+  /* ========== Processamento ========== */
   function processData(rows, override /* {map, hasHeader} opcional */) {
     try {
       if (!Array.isArray(rows) || rows.length === 0) {
@@ -564,6 +545,7 @@ export default function PlanilhaOficial() {
           headerRow &&
           (HEADER_ALIASES.nome.some((h) => maybeHeaderLower.includes(h)) ||
             HEADER_ALIASES.telefone.some((h) => maybeHeaderLower.includes(h)) ||
+            HEADER_ALIASES.whatsapp.some((h) => maybeHeaderLower.includes(h)) ||
             HEADER_ALIASES.email.some((h) => maybeHeaderLower.includes(h)) ||
             HEADER_ALIASES.pontos.some((h) => maybeHeaderLower.includes(h)));
 
@@ -573,39 +555,28 @@ export default function PlanilhaOficial() {
           headerDetected = true;
         }
 
-        // 2) Sem cabeçalho mapeável → heurística
         let guessed = null;
         if (!headerMap || Object.values(headerMap).every((v) => v < 0)) {
           guessed = guessIndexesByContent(rows.slice(startIndex, startIndex + 200));
           headerMap = guessed;
         }
 
-        // ===== Debug & confiança =====
         const lowReasons = [];
         let lowConfidence = false;
-
         if (!headerDetected) {
           const confPhone = headerMap?.confidence?.telefone ?? 0;
           if (confPhone < LOW_CONF_THRESHOLD) {
             lowConfidence = true;
             lowReasons.push(`Baixa confiança na detecção de Telefone (${(confPhone*100).toFixed(0)}%).`);
           }
-          if ((headerMap?.telefone ?? -1) === -1) {
+          if ((headerMap?.telefone ?? -1) === -1 && (headerMap?.whatsapp ?? -1) === -1) {
             lowConfidence = true;
-            lowReasons.push("Não foi possível definir a coluna de Telefone.");
-          }
-          if ((headerMap?.nome ?? -1) === -1) {
-            lowConfidence = true;
-            lowReasons.push("Não foi possível definir a coluna de Nome.");
+            lowReasons.push("Não foi possível definir a coluna de Telefone/WhatsApp.");
           }
         } else {
-          if ((headerMap?.telefone ?? -1) === -1) {
+          if ((headerMap?.telefone ?? -1) === -1 && (headerMap?.whatsapp ?? -1) === -1) {
             lowConfidence = true;
-            lowReasons.push("Cabeçalho encontrado, mas Telefone não foi mapeado.");
-          }
-          if ((headerMap?.nome ?? -1) === -1) {
-            lowConfidence = true;
-            lowReasons.push("Cabeçalho encontrado, mas Nome não foi mapeado.");
+            lowReasons.push("Cabeçalho encontrado, mas Telefone/WhatsApp não foi mapeado.");
           }
         }
 
@@ -626,11 +597,15 @@ export default function PlanilhaOficial() {
 
       const deleted = {
         invalid_telefone: 0,
+        invalid_whatsapp: 0,
+        invalid_both: 0,
         no_valid_number: 0,
         invalid_format: 0,
-        invalid_email: 0,
-        invalid_points: 0,
+        invalid_email: 0,   // info
+        invalid_points: 0,  // info
+        used_whatsapp_fallback: 0,
       };
+
       const linhasDeletadas = [];
       const processadas = [];
       const deletedRowsData = [];
@@ -644,74 +619,99 @@ export default function PlanilhaOficial() {
         const rowNum = i + 1;
         const row = rows[i] || [];
 
-        const nome = pick(row, headerMap?.nome ?? -1);
-        const telefone = pick(row, headerMap?.telefone ?? -1);
+        const nomeRaw = pick(row, headerMap?.nome ?? -1);
+        const telefoneRaw = pick(row, headerMap?.telefone ?? -1);
+        const whatsappRaw = pick(row, headerMap?.whatsapp ?? -1);
         const emailRaw = pick(row, headerMap?.email ?? -1);
         const pontosRaw = pick(row, headerMap?.pontos ?? -1);
 
         totalLidas += 1;
 
-        // === Telefone único ===
-        const telValid = isValidBrazilianNumber(telefone);
-        const telFormatted = telValid ? formatBrazilianNumber(telefone) : null;
-
-        let reason = null;
+        // === Telefone preferencial + fallback WhatsApp ===
+        let chosenSource = "";
         let finalPhone = "";
+        let reason = null;
 
-        if (telValid && telFormatted) {
-          finalPhone = telFormatted;
-        } else if (telefone) {
-          reason = "invalid_telefone";
+        const telHas = Boolean(softTrim(telefoneRaw));
+        const waHas  = Boolean(softTrim(whatsappRaw));
+        const telOk  = telHas && isValidBrazilianMobile(telefoneRaw);
+        const waOk   = waHas && isValidBrazilianMobile(whatsappRaw);
+
+        if (telOk) {
+          finalPhone = formatBrazilianNumber(telefoneRaw);
+          chosenSource = "telefone";
+        } else if (!telHas && waOk) {
+          // telefone vazio → tenta whatsapp
+          finalPhone = formatBrazilianNumber(whatsappRaw);
+          chosenSource = "whatsapp";
+          deleted.used_whatsapp_fallback += 1;
+        } else if (telHas && !telOk && waOk) {
+          // telefone inválido → fallback no whatsapp
+          finalPhone = formatBrazilianNumber(whatsappRaw);
+          chosenSource = "whatsapp";
+          deleted.used_whatsapp_fallback += 1;
         } else {
-          reason = "no_valid_number";
+          // Nenhum válido → classifica motivo
+          if (telHas && waHas && !telOk && !waOk) {
+            reason = "invalid_both";
+          } else if (telHas && !telOk) {
+            reason = "invalid_telefone";
+          } else if (waHas && !waOk) {
+            reason = "invalid_whatsapp";
+          } else {
+            reason = "no_valid_number";
+          }
         }
 
-        // Nome obrigatório
-        if (!reason && !nome) reason = "invalid_format";
+        // Nome vazio NÃO deleta
+        const nomeOut = nomeRaw || "Cliente";
 
-        // Email inválido → apaga
+        // Email inválido → apaga o campo (não deleta)
         const emailValid = isValidEmail(emailRaw);
         const emailOut = emailValid ? emailRaw : "";
         if (!emailValid) deleted.invalid_email += 1;
 
-        // Pontos → só dígitos
+        // Pontos → só dígitos (não deleta)
         const pontosOut = normalizePoints(pontosRaw);
         if (pontosRaw && pontosOut === "") deleted.invalid_points += 1;
 
         if (reason) {
-          deleted[reason] += 1;
           linhasDeletadas.push(rowNum);
           deletedRowsData.push({
             "Linha original": rowNum,
             Motivo: reason,
-            Nome: nome,
-            Telefone: telefone,
+            Nome: nomeRaw,
+            Telefone: telefoneRaw,
+            Whatsapp: whatsappRaw,
             Email: emailRaw,
             "Pontos do fidelidade": pontosRaw,
           });
+          deleted[reason] += 1;
         } else {
           processadas.push({
-            nome: nome || "Cliente",
+            nome: nomeOut,
             telefone: finalPhone,
             email: emailOut,
             pontos: pontosOut,
           });
         }
 
-        // Debug amostra (primeiras 10 linhas)
+        // Debug (primeiras 10)
         if (sample.length < 10) {
-          const pontosShow =
-            pontosOut === "" && pontosRaw ? "(apagado)" : pontosOut;
-          const emailShow =
-            emailOut === "" && emailRaw ? "(apagado)" : emailOut;
+          const pontosShow = pontosOut === "" && pontosRaw ? "(apagado)" : pontosOut;
+          const emailShow  = emailOut === "" && emailRaw ? "(apagado)" : emailOut;
 
           sample.push({
             rowNum,
-            nome,
-            telefone,
-            telDigits: onlyDigits(telefone),
-            telValid,
+            nome: nomeRaw,
+            telefone: telefoneRaw,
+            whatsapp: whatsappRaw,
+            telDigits: onlyDigits(telefoneRaw),
+            waDigits: onlyDigits(whatsappRaw),
+            telValid: telOk,
+            waValid: waOk,
             chosen: finalPhone || "",
+            chosenSource,
             email: emailRaw,
             emailValid,
             emailOut: emailShow,
@@ -722,11 +722,8 @@ export default function PlanilhaOficial() {
         }
       }
 
-      // Salva debug da amostra
-      setDebug((prev) => ({
-        ...prev,
-        sampleExtract: sample,
-      }));
+      // Debug amostra
+      setDebug((prev) => ({ ...prev, sampleExtract: sample }));
 
       // Saída válida (chunk de 5000)
       const CHUNK = 5000;
@@ -735,8 +732,7 @@ export default function PlanilhaOficial() {
         const parts = slices.map((slice, idx) => {
           const csvStr = buildOutputCSV(slice);
           return {
-            name: `${(fileName || "clientes_processados")
-              .replace(/\.csv$/i, "")}_parte_${idx + 1}.csv`,
+            name: `${(fileName || "clientes_processados").replace(/\.csv$/i, "")}_parte_${idx + 1}.csv`,
             blob: new Blob([csvStr], { type: "text/csv;charset=utf-8" }),
           };
         });
@@ -808,9 +804,9 @@ export default function PlanilhaOficial() {
           <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
             Tratador de CSV — Nome, Telefone, Email e Pontos (com Debug)
           </h2>
-          <p className="text-gray-600 dark:text-gray-300 text-lg mt-2">
+          <p className="text-gray-600 dark:text-gray-300 text-lg mt-2"> 
             Mapeamento automático robusto, <strong>um único telefone</strong> e exportação no layout oficial.
-          </p>
+            </p>
         </div>
       </div>
 
@@ -823,7 +819,7 @@ export default function PlanilhaOficial() {
             </h3>
             <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
               Pode enviar CSV em qualquer ordem (com/sem cabeçalho). Ative o <strong>Debug</strong> se algo parecer estranho
-              ou abra o <strong>Mapeamento manual</strong> para ajustar colunas.
+              ou abra o <strong>Mapeamento Manual</strong> para ajustar colunas.
             </p>
           </div>
 
@@ -844,7 +840,7 @@ export default function PlanilhaOficial() {
               </button>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={() => setDebugOpen((v) => !v)}
                 className="px-4 py-2 rounded-lg border border-purple-300/50 dark:border-purple-500/30 text-purple-700 dark:text-purple-300 bg-purple-50/70 dark:bg-purple-900/20 hover:bg-purple-100/70 dark:hover:bg-purple-900/30 transition"
@@ -855,7 +851,7 @@ export default function PlanilhaOficial() {
               <button
                 onClick={() =>
                   openMapPanel(
-                    debug.headerMap || debug.guessedMap || { nome:-1, telefone:-1, email:-1, pontos:-1 },
+                    debug.headerMap || debug.guessedMap || { nome:-1, telefone:-1, whatsapp:-1, email:-1, pontos:-1 },
                     debug.headerDetected,
                     "Mapeamento manual aberto pelo usuário."
                   )
@@ -880,10 +876,14 @@ export default function PlanilhaOficial() {
         </div>
       </div>
 
-      {/* Painel de Mapeamento Manual */}
+      {/* Painel de Mapeamento Manual (explica fallback) */}
       {mapUI.open && (
         <div className="mb-10 rounded-2xl border border-blue-300/60 dark:border-blue-500/40 bg-blue-50/70 dark:bg-blue-900/20 p-6">
-          <h3 className="text-lg font-bold text-blue-900 dark:text-blue-200 mb-4">Mapeamento manual de colunas</h3>
+          <h3 className="text-lg font-bold text-blue-900 dark:text-blue-200 mb-2">Mapeamento manual de colunas</h3>
+          <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mb-4">
+            <strong>O que é “fallback do WhatsApp”?</strong> Se o campo <em>Telefone</em> estiver vazio ou inválido, o sistema tenta usar o número da coluna mapeada como <em>WhatsApp</em>.
+            Se o WhatsApp for válido, ele assume como telefone de saída; se também for inválido, a linha é deletada por ausência de número válido.
+          </p>
 
           <div className="flex items-center gap-3 mb-4">
             <input
@@ -900,9 +900,10 @@ export default function PlanilhaOficial() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               { key: "nome", label: "Nome" },
-              { key: "telefone", label: "Telefone" },
-              { key: "email", label: "Email" },
-              { key: "pontos", label: "Pontos" },
+              { key: "telefone", label: "Telefone (principal)" },
+              { key: "whatsapp", label: "WhatsApp (fallback)" },
+              { key: "email", label: "Email (opcional)" },
+              { key: "pontos", label: "Pontos (opcional)" },
             ].map((f) => (
               <div key={f.key} className="flex flex-col gap-1">
                 <label className="text-sm font-medium text-blue-900 dark:text-blue-100">{f.label}</label>
@@ -999,9 +1000,13 @@ export default function PlanilhaOficial() {
                       <th className="p-2">#</th>
                       <th className="p-2">Nome</th>
                       <th className="p-2">Telefone (raw)</th>
+                      <th className="p-2">WhatsApp (raw)</th>
                       <th className="p-2">Tel dígitos</th>
+                      <th className="p-2">WA dígitos</th>
                       <th className="p-2">Tel OK</th>
+                      <th className="p-2">WA OK</th>
                       <th className="p-2">Telefone (saída)</th>
+                      <th className="p-2">Fonte</th>
                       <th className="p-2">Email (raw)</th>
                       <th className="p-2">Email OK</th>
                       <th className="p-2">Email (saída)</th>
@@ -1016,9 +1021,13 @@ export default function PlanilhaOficial() {
                         <td className="p-2">{r.rowNum}</td>
                         <td className="p-2">{r.nome}</td>
                         <td className="p-2">{r.telefone}</td>
+                        <td className="p-2">{r.whatsapp}</td>
                         <td className="p-2">{r.telDigits}</td>
+                        <td className="p-2">{r.waDigits}</td>
                         <td className="p-2">{r.telValid ? "✔️" : r.telValid === false ? "❌" : ""}</td>
+                        <td className="p-2">{r.waValid ? "✔️" : r.waValid === false ? "❌" : ""}</td>
                         <td className="p-2">{r.chosen}</td>
+                        <td className="p-2">{r.chosenSource || ""}</td>
                         <td className="p-2">{r.email}</td>
                         <td className="p-2">{r.emailValid ? "✔️" : r.emailValid === false ? "❌" : ""}</td>
                         <td className="p-2">{r.emailOut}</td>
@@ -1053,7 +1062,7 @@ export default function PlanilhaOficial() {
               <Stat label="Válidas" value={report.totalValidas} positive />
             </div>
 
-            {/* Toggle mostrar/esconder métricas de deletados */}
+            {/* 📋 Registros Deletados — motivos/quantidades escondidos, botão de download SEMPRE VISÍVEL */}
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-bold text-rose-600 dark:text-rose-400 text-lg">
                 📋 Registros Deletados
@@ -1066,29 +1075,9 @@ export default function PlanilhaOficial() {
               </button>
             </div>
 
-            {showDeletedSummary && (
-              <div className="space-y-3">
-                <Item label="Telefone inválido" value={report.deletadas.invalid_telefone} />
-                <Item label="Sem número válido" value={report.deletadas.no_valid_number} />
-                <Item label="Formato inválido (nome vazio)" value={report.deletadas.invalid_format} />
-                <Item label="Email inválido (ignorado)" value={report.deletadas.invalid_email} />
-                <Item label="Pontos inválidos (sanitizados)" value={report.deletadas.invalid_points} />
-              </div>
-            )}
-
-            {hasDeleted && (
-              <details className="mt-4">
-                <summary className="cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
-                  Mostrar linhas removidas
-                </summary>
-                <div className="mt-3 p-3 bg-gray-100/70 dark:bg-slate-700/40 rounded-lg text-sm text-gray-700 dark:text-gray-300 max-h-32 overflow-y-auto">
-                  {report.linhasDeletadas.join(", ")}
-                </div>
-              </details>
-            )}
-
+            {/* Botão fora do toggle (fica sempre visível quando há deletados) */}
             {deletedParts.length > 0 && (
-              <div className="mt-6">
+              <div className="mb-4">
                 <button
                   onClick={handleDownloadDeleted}
                   className="w-full px-6 py-4 bg-gradient-to-r from-red-100/80 dark:from-red-600/30 to-rose-100/80 dark:to-rose-600/30 hover:from-red-200/80 dark:hover:from-red-600/40 hover:to-rose-200/80 dark:hover:to-rose-600/40 text-red-700 dark:text-red-200 border border-red-300/60 dark:border-red-500/40 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2"
@@ -1097,6 +1086,34 @@ export default function PlanilhaOficial() {
                   Baixar registros deletados (.csv)
                 </button>
               </div>
+            )}
+
+            {showDeletedSummary && (
+              <>
+                {/* Resumo ampliado de motivos (somente contadores) */}
+                <div className="space-y-3 mb-4">
+                  <Item label="Telefone inválido" value={report.deletadas.invalid_telefone} />
+                  <Item label="WhatsApp inválido" value={report.deletadas.invalid_whatsapp} />
+                  <Item label="Telefone e WhatsApp inválidos" value={report.deletadas.invalid_both} />
+                  <Item label="Sem número válido" value={report.deletadas.no_valid_number} />
+                  {/* Informativos (não deletam) */}
+                  <Item label="Emails inválidos (apagados do campo)" value={report.deletadas.invalid_email} />
+                  <Item label="Pontos inválidos (sanitizados)" value={report.deletadas.invalid_points} />
+                  <Item label="Usou fallback do WhatsApp (aproveitados)" value={report.deletadas.used_whatsapp_fallback} />
+                </div>
+
+                {/* Opcional: mostrar linhas removidas (apenas lista simples) */}
+                {hasDeleted && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+                      Mostrar linhas removidas
+                    </summary>
+                    <div className="mt-3 p-3 bg-gray-100/70 dark:bg-slate-700/40 rounded-lg text-sm text-gray-700 dark:text-gray-300 max-h-32 overflow-y-auto">
+                      {report.linhasDeletadas.join(", ")}
+                    </div>
+                  </details>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -1121,25 +1138,17 @@ export default function PlanilhaOficial() {
               />
             </div>
 
-            {/* Botões de download */}
             {outputParts.length > 0 ? (
               <>
                 <button
                   onClick={handleDownloadAllParts}
                   className="w-full rounded-xl px-8 py-6 font-bold text-lg transition-all duration-300 bg-gradient-to-r from-purple-600 via-violet-600 to-purple-600 text-white hover:from-purple-500 hover:via-violet-500 hover:to-purple-500 shadow-[0_8px_32px_rgba(139,92,246,0.4)] hover:shadow-[0_12px_48px_rgba(139,92,246,0.6)] transform hover:scale-[1.02]"
                 >
-                  📦 Baixar TODAS as partes ({outputParts.length}) — dispara {outputParts.length} downloads
+                  📦 Baixar TODAS as partes ({outputParts.length})
                 </button>
 
                 <div className="text-sm text-blue-700 dark:text-blue-300 p-4 bg-gradient-to-r from-blue-100/80 dark:from-blue-900/30 to-purple-100/80 dark:to-purple-900/30 border border-blue-300/60 dark:border-blue-600/30 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-lg">ℹ️</span>
-                    <strong className="text-blue-800 dark:text-blue-200">Arquivo dividido automaticamente</strong>
-                  </div>
-                  <p>
-                    Foram geradas <span className="font-bold">{outputParts.length}</span> partes (máx. 5.000 registros por parte).
-                    Você pode baixar todas juntas no botão acima ou cada parte individualmente abaixo.
-                  </p>
+                  Foram geradas <span className="font-bold">{outputParts.length}</span> partes (máx. 5.000 registros por parte).
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
