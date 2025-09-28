@@ -5,16 +5,20 @@ import Papa from "papaparse";
 /**
  * Conversor .XLSX → .CSV (vírgula)
  * - 100% no navegador
- * - Escolha de aba, prévia e split em partes de 5.000 linhas (mantém cabeçalho)
+ * - Escolha de aba e split em partes de 5.000 linhas (mantém cabeçalho)
  * - Visual aprimorado + acessibilidade
+ * - Baixar TODAS as partes em UMA única planilha .xlsx (cada parte em uma aba)
  */
 export default function Conversor() {
   const [fileName, setFileName] = useState("");
   const [sheets, setSheets] = useState([]);
   const [selectedSheet, setSelectedSheet] = useState("");
-  const [preview, setPreview] = useState([]);
   const [parts, setParts] = useState([]); // [{name, blob}]
   const [info, setInfo] = useState("");
+
+  // Estados para o download combinado (.xlsx)
+  const [combinedHeader, setCombinedHeader] = useState([]); // primeira linha (cabeçalho)
+  const [combinedSlices, setCombinedSlices] = useState([]); // array de slices (cada um é um array de linhas)
 
   const card =
     "rounded-3xl p-8 border backdrop-blur-xl bg-white/80 dark:bg-black/40 " +
@@ -38,6 +42,16 @@ export default function Conversor() {
     return out;
   }
 
+  function sanitizeSheetName(name) {
+    // Remove caracteres inválidos para nomes de abas no Excel e espaços extras
+    return (
+      String(name || "")
+        .replace(/[:\\/?*\[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim() || "Planilha"
+    );
+  }
+
   async function handleXlsx(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -45,9 +59,10 @@ export default function Conversor() {
     setFileName(file.name);
     setSheets([]);
     setSelectedSheet("");
-    setPreview([]);
     setParts([]);
     setInfo("");
+    setCombinedHeader([]);
+    setCombinedSlices([]);
 
     try {
       const ab = await file.arrayBuffer();
@@ -57,9 +72,6 @@ export default function Conversor() {
 
       if (names[0]) {
         setSelectedSheet(names[0]);
-        const ws = wb.Sheets[names[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) || [];
-        setPreview(rows.slice(0, 5));
         setInfo(`📊 Arquivo com ${names.length} aba(s).`);
       }
     } catch {
@@ -67,20 +79,12 @@ export default function Conversor() {
     }
   }
 
-  async function onChangeSheet(name) {
+  function onChangeSheet(name) {
     setSelectedSheet(name);
     setParts([]);
     setInfo("");
-
-    const input = document.getElementById("xlsx-input");
-    const file = input?.files?.[0];
-    if (!file) return;
-
-    const ab = await file.arrayBuffer();
-    const wb = XLSX.read(ab, { dense: true });
-    const ws = wb.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) || [];
-    setPreview(rows.slice(0, 5));
+    setCombinedHeader([]);
+    setCombinedSlices([]);
   }
 
   async function convertSelectedSheet() {
@@ -112,15 +116,49 @@ export default function Conversor() {
       const csv = Papa.unparse([header, ...slice], { delimiter: "," });
       const name =
         slices.length > 1
-          ? `${base}_${selectedSheet}_parte_${idx + 1}.csv`
-          : `${base}_${selectedSheet}.csv`;
+          ? `${base}_${sanitizeSheetName(selectedSheet)}_parte_${idx + 1}.csv`
+          : `${base}_${sanitizeSheetName(selectedSheet)}.csv`;
       return { name, blob: new Blob([csv], { type: "text/csv;charset=utf-8" }) };
     });
 
     setParts(generated);
     setInfo(
-      `✅ Conversão concluída${slices.length > 1 ? ` • geradas ${slices.length} partes.` : "."}`
+      `✅ Conversão concluída${
+        slices.length > 1 ? ` • geradas ${slices.length} partes.` : "."
+      }`
     );
+
+    // Guardar info para o download combinado (.xlsx)
+    setCombinedHeader(header);
+    setCombinedSlices(slices.length ? slices : [dataRows]);
+  }
+
+  // Baixar todas as partes em uma ÚNICA planilha .xlsx (uma aba por parte)
+  function downloadCombinedXlsx() {
+    if (!combinedSlices.length) return;
+
+    const wb = XLSX.utils.book_new();
+    const base = (fileName || "planilha").replace(/\.(xlsx|xlsm|xls|xlsb)$/i, "");
+    const safeSheet = sanitizeSheetName(selectedSheet);
+
+    combinedSlices.forEach((slice, idx) => {
+      // sempre mantém cabeçalho na aba
+      const aoa = [combinedHeader, ...slice];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const tabName =
+        combinedSlices.length > 1 ? `${safeSheet}_parte_${idx + 1}` : `${safeSheet}`;
+      XLSX.utils.book_append_sheet(wb, ws, tabName.slice(0, 31)); // Excel limita a 31 caracteres
+    });
+
+    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const finalName =
+      combinedSlices.length > 1
+        ? `${base}_${safeSheet}_todas_as_partes.xlsx`
+        : `${base}_${safeSheet}.xlsx`;
+    triggerDownloadBlob(blob, finalName);
   }
 
   return (
@@ -202,40 +240,22 @@ export default function Conversor() {
         </div>
       )}
 
-      {preview.length > 0 && (
-        <div className="mb-8">
-          <h4 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-            <span>👁️</span> Prévia (primeiras 5 linhas)
-          </h4>
-          <div className="overflow-auto rounded-xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 backdrop-blur-lg">
-            <table className="min-w-full text-sm">
-              <tbody>
-                {preview.map((r, idx) => (
-                  <tr
-                    key={idx}
-                    className={`${idx % 2 === 0 ? "bg-gray-50 dark:bg-slate-700/40" : "bg-white dark:bg-slate-800/60"} transition-colors`}
-                  >
-                    {(r || []).map((c, i) => (
-                      <td
-                        key={i}
-                        className="px-4 py-4 border-r border-purple-200/50 dark:border-purple-500/20 last:border-r-0 text-gray-700 dark:text-gray-200 font-medium"
-                      >
-                        {String(c ?? "")}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {parts.length > 0 && (
-        <div className="rounded-2xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 p-6 backdrop-blur-lg">
-          <h4 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+        <div className="rounded-2xl border border-purple-300/50 dark:border-purple-500/30 bg-white/90 dark:bg-slate-800/60 p-6 backdrop-blur-lg space-y-5">
+          <h4 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
             <span>💾</span> Baixar CSV(s)
           </h4>
+
+          {/* Baixar TODAS as partes em uma ÚNICA planilha .xlsx */}
+          <button
+            onClick={downloadCombinedXlsx}
+            className="w-full mb-2 rounded-xl px-6 py-4 font-bold text-base transition-all duration-300 bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500 shadow-[0_8px_24px_rgba(37,99,235,0.35)] hover:shadow-[0_12px_36px_rgba(37,99,235,0.45)] transform hover:scale-[1.01]"
+            title="Cria um .xlsx com uma aba por parte (mantém o cabeçalho em cada aba)"
+          >
+            📘 Baixar TUDO em uma única planilha (.xlsx)
+          </button>
+
+          {/* Botões individuais (partes separadas) */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {parts.map((p, idx) => (
               <button
