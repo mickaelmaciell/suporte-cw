@@ -1,4 +1,4 @@
-// api/support.js  (Vercel Serverless Function - CommonJS)
+// api/support.cjs  (Vercel Serverless Function - CommonJS)
 "use strict";
 
 // Altere via env se quiser: N8N_WEBHOOK_URL

@@ -1,4 +1,4 @@
-// api/_debug.js  (CommonJS)
+// api/_debug.cjs
 "use strict";
 
 module.exports = async (req, res) => {

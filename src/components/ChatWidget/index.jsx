@@ -257,7 +257,7 @@ export default function ChatWidget({
               className="rounded-lg bg-white/15 hover:bg-white/25 px-3 py-1.5 text-[11px] transition-all"
               title="Nova conversa"
             >
-              🔄 Limpar
+              🔄 Limpar.
             </button>
             <button
               onClick={() => setOpen(false)}
