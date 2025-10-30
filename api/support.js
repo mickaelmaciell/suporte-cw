@@ -1,11 +1,13 @@
 // api/support.js
-// Vercel Node Function (Node 20) em CommonJS + proxy p/ n8n + CORS + logs completos.
+// Vercel Node Function (Node 20) em CommonJS + proxy para n8n com CORS, health e logs robustos.
 
 const PRIMARY = "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
 
+/* ====================== helpers ====================== */
 function unique(list) {
   return [...new Set(list)];
 }
+
 function buildCandidates(url) {
   const hasChat = url.endsWith("/chat");
   const withoutChat = hasChat ? url.replace(/\/chat$/, "") : url;
@@ -22,7 +24,7 @@ function buildCandidates(url) {
 }
 
 function sendJson(res, status, body, extraHeaders = {}) {
-  const data = typeof body === "string" ? { message: body } : body;
+  const data = typeof body === "string" ? { message: body } : (body || {});
   const headers = {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
@@ -32,12 +34,38 @@ function sendJson(res, status, body, extraHeaders = {}) {
   res.status(status).end(JSON.stringify(data));
 }
 
-module.exports = async (req, res) => {
-  const method = (req.method || "GET").toUpperCase();
-  const vercelId = req.headers["x-vercel-id"] || null;
-  const rid = `${vercelId || "no-vercel"}::${Date.now()}`;
+async function readRawBody(req) {
+  // Trata string, Buffer, objeto e stream
+  try {
+    if (typeof req.body === "string") return req.body;
+    if (Buffer.isBuffer(req.body)) return req.body.toString("utf8");
+    if (req.body && typeof req.body === "object") return JSON.stringify(req.body);
+  } catch (e) {
+    // segue para leitura via stream
+  }
 
-  // CORS
+  if (req.readable) {
+    return await new Promise((resolve, reject) => {
+      let data = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk) => (data += chunk));
+      req.on("end", () => resolve(data || "{}"));
+      req.on("error", reject);
+    });
+  }
+  return "{}";
+}
+
+/* ====================== handler ====================== */
+module.exports = async (req, res) => {
+  const startedAt = Date.now();
+  const method = (req.method || "GET").toUpperCase();
+
+  // Meta p/ debug
+  const vercelId = req.headers["x-vercel-id"] || null;
+  const rid = `${vercelId || "no-vercel"}::${startedAt}`;
+
+  // CORS sempre
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -49,94 +77,118 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // GET: health/debug (nunca 405 aqui)
-  if (method === "GET") {
-    sendJson(res, 200, {
-      ok: true,
-      message: "CW Support proxy ativo. Use POST para encaminhar ao n8n.",
+  try {
+    // Health/Debug
+    if (method === "GET") {
+      sendJson(res, 200, {
+        ok: true,
+        message: "CW Support proxy ativo. Use POST para conversar com o bot.",
+        rid,
+        vercelId,
+        targetPrimary: PRIMARY,
+        hint: "POST /api/support com { sessionId, action:'sendMessage', chatInput }",
+        ts: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Qualquer método diferente de POST -> orientação (evita 405)
+    if (method !== "POST") {
+      sendJson(res, 200, {
+        ok: false,
+        error: "Use POST para conversar com o bot.",
+        rid,
+        hint: "Envie JSON { sessionId, action:'sendMessage', chatInput }",
+        ts: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Lê o body de forma segura
+    const payloadRaw = await readRawBody(req);
+    const bodyLen = (payloadRaw || "").length;
+
+    // Log de entrada essencial (não vaza dados sensíveis)
+    console.log("[CW][IN]", JSON.stringify({
+      rid, method, bodyLen,
+      ct: req.headers["content-type"] || null,
+      host: req.headers["host"] || null,
+      vercelId,
+    }));
+
+    // Tenta os endpoints candidatos do n8n
+    const candidates = buildCandidates(PRIMARY);
+    const attempts = [];
+
+    for (const url of candidates) {
+      try {
+        const upstream = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "*/*" },
+          body: payloadRaw,
+        });
+
+        const text = await upstream.text();
+
+        attempts.push({
+          url,
+          status: upstream.status,
+          ok: upstream.ok,
+          sample: text.slice(0, 200),
+        });
+
+        // sucesso parcial/total: qualquer coisa que não seja 404/405 a gente repassa
+        if (![404, 405].includes(upstream.status)) {
+          res.setHeader("x-cw-proxy-target", url);
+
+          // tenta JSON primeiro
+          try {
+            const jsonOut = JSON.parse(text);
+            console.log("[CW][OUT][OK]", JSON.stringify({ rid, status: upstream.status, url }));
+            sendJson(res, upstream.status, jsonOut);
+          } catch {
+            console.log("[CW][OUT][TEXT]", JSON.stringify({ rid, status: upstream.status, url, len: text.length }));
+            res.status(upstream.status).end(text);
+          }
+          return;
+        }
+      } catch (e) {
+        attempts.push({ url, error: String(e?.message || e) });
+      }
+    }
+
+    // Nenhuma tentativa vingou
+    res.setHeader("x-cw-proxy-target", "none");
+    console.error("[CW][PROXY_FAIL]", JSON.stringify({ rid, attempts }));
+    sendJson(res, 502, {
+      ok: false,
       rid,
       vercelId,
-      targetPrimary: PRIMARY,
-      hint: "POST /api/support com { sessionId, action:'sendMessage', chatInput }",
+      error: "Nenhum endpoint do n8n respondeu corretamente (404/405/erro).",
+      tried: attempts,
+      hint: "Confirme se o workflow do n8n está ATIVO, método POST e path termina com /chat.",
+      ts: new Date().toISOString(),
     });
-    return;
-  }
 
-  // Qualquer coisa que não seja POST: responde 200 com instrução
-  if (method !== "POST") {
-    sendJson(res, 200, {
-      ok: false,
-      error: "Use POST para conversar com o bot.",
+  } catch (err) {
+    // Crash real (erro 500)
+    console.error("[CW][HANDLER_FATAL]", {
       rid,
-      hint: "Envie JSON { sessionId, action:'sendMessage', chatInput }",
+      name: err?.name || null,
+      message: err?.message || String(err),
+      stack: err?.stack || null,
     });
-    return;
+    // Não setamos x-cw-proxy-target aqui porque nem chegamos a proxyar
+    sendJson(res, 500, {
+      ok: false,
+      rid,
+      error: "handler_crashed",
+      detail: err?.message || String(err),
+      ts: new Date().toISOString(),
+    });
+  } finally {
+    console.log("[CW][END]", JSON.stringify({ rid, tookMs: Date.now() - startedAt }));
   }
-
-  // Lê body (string/objeto/stream)
-  let payloadRaw = "";
-  try {
-    if (typeof req.body === "string") {
-      payloadRaw = req.body;
-    } else if (req.body && typeof req.body === "object") {
-      payloadRaw = JSON.stringify(req.body);
-    } else {
-      payloadRaw = await new Promise((resolve, reject) => {
-        let data = "";
-        req.setEncoding("utf8");
-        req.on("data", (chunk) => (data += chunk));
-        req.on("end", () => resolve(data || "{}"));
-        req.on("error", reject);
-      });
-    }
-  } catch (e) {
-    return sendJson(res, 400, { ok: false, rid, error: "Falha ao ler body", detail: String(e) });
-  }
-
-  const attempts = [];
-  const candidates = buildCandidates(PRIMARY);
-
-  for (const url of candidates) {
-    try {
-      const upstream = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "*/*" },
-        body: payloadRaw,
-      });
-
-      const text = await upstream.text();
-      attempts.push({
-        url,
-        status: upstream.status,
-        ok: upstream.ok,
-        sample: text.slice(0, 300),
-      });
-
-      // Se não for 404/405, consideramos OK e repassamos
-      if (![404, 405].includes(upstream.status)) {
-        res.setHeader("x-cw-proxy-target", url);
-        try {
-          const jsonOut = JSON.parse(text);
-          sendJson(res, upstream.status, jsonOut);
-        } catch {
-          res.status(upstream.status).end(text);
-        }
-        return;
-      }
-    } catch (e) {
-      attempts.push({ url, error: String(e?.message || e) });
-    }
-  }
-
-  res.setHeader("x-cw-proxy-target", "none");
-  sendJson(res, 502, {
-    ok: false,
-    rid,
-    vercelId,
-    error: "Nenhum endpoint do n8n respondeu corretamente (404/405/erro).",
-    tried: attempts,
-    hint: "Confirme se o workflow do n8n está ATIVO, método POST e path termina com /chat.",
-  });
 };
 
 // Declara o runtime para Node 20 no formato CJS
