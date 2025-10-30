@@ -129,7 +129,7 @@ export default function App() {
 
       {/* Widget montado fora das rotas: aparece em TODAS as páginas */}
       <ChatWidget
-        endpoint={API_ENDPOINT}
+        endpoint="/api/support"
         title="CW • Suporte"
         accent="from-[#A543FB] to-[#7e22ce]"
         startOpen={false}
