@@ -1,11 +1,9 @@
 // api/support.cjs
-// Proxy robusto + CORS para o seu webhook do n8n.
-// Logs visíveis no "Functions / Logs" da Vercel.
+// Proxy robusto + CORS para o webhook do n8n, com logs e header X-CW-Proxy-Target.
 
 const PRIMARY = "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
 
 function unique(list) { return [...new Set(list)]; }
-
 function buildCandidates(url) {
   const withTest = url.replace("/webhook/", "/webhook-test/");
   const hasChat = url.endsWith("/chat");
@@ -16,33 +14,43 @@ function buildCandidates(url) {
     withTest.endsWith("/chat") ? withTest.replace(/\/chat$/, "") : withTest + "/chat",
   ]);
 }
-
-// Log helper
-function log(...args) {
-  console.log("[api/support]", ...args);
+function log(id, label, data) {
+  try { console.log("[api/support]", id, label, typeof data === "string" ? data : JSON.stringify(data)); }
+  catch { console.log("[api/support]", id, label); }
 }
 
 module.exports = async (req, res) => {
   const rid = Math.random().toString(36).slice(2);
-  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Debug-Id");
   res.setHeader("X-Debug-Id", rid);
 
+  // Pré-flight
   if (req.method === "OPTIONS") {
     log(rid, "OPTIONS");
     return res.status(204).end();
   }
+
+  // GET de diagnóstico rápido (evita 405 ao abrir a URL no navegador)
+  if (req.method === "GET") {
+    log(rid, "GET /api/support");
+    return res.status(200).json({
+      ok: true,
+      tip: "Use POST para encaminhar ao n8n.",
+      node: process.version,
+      region: process.env.VERCEL_REGION || null,
+    });
+  }
+
   if (req.method !== "POST") {
-    log(rid, "405 Method:", req.method);
+    log(rid, "405", req.method);
     return res.status(405).json({ ok: false, error: "Method not allowed", method: req.method });
   }
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
   const bodyRaw = typeof req.body === "string" ? req.body : JSON.stringify(req.body || {});
   const candidates = buildCandidates(PRIMARY);
-  log(rid, "IN", { path: url.pathname, candidates });
+  log(rid, "IN", { method: req.method, candidates });
 
   const tried = [];
   for (const target of candidates) {
@@ -56,8 +64,8 @@ module.exports = async (req, res) => {
       const text = await upstream.text();
       log(rid, "TRY", { target, status: upstream.status, len: text.length });
 
-      // retorna tudo, exceto 404/405 (vamos tentar o próximo)
       if (![404, 405].includes(upstream.status)) {
+        res.setHeader("X-CW-Proxy-Target", target);
         try {
           const json = JSON.parse(text);
           log(rid, "OK(JSON)", { target, status: upstream.status });

@@ -8,8 +8,8 @@ import SourceList from "./SourceList"; // só renderiza se SHOW_CITATIONS=true
 const WELCOME =
   "Olá! Sou o assistente do suporte. Me diga seu problema (ex.: QZ Tray ícone vermelho, não imprime).";
 
-// Endpoint default relativo (funciona em subpaths); pode sobrescrever por prop
-const DEFAULT_ENDPOINT = "./api/support";
+// ⚠️ MUITO IMPORTANTE: endpoint absoluto para não virar /<base>/api/support
+const DEFAULT_ENDPOINT = "/api/support";
 
 const DEBUG = true;
 const SHOW_CITATIONS = false;
@@ -95,7 +95,8 @@ export default function ChatWidget({
   const [open, setOpen] = useState(embed ? true : startOpen);
   const sessionId = useMemo(getOrCreateSession, []);
   const [messages, setMessages] = useState(() => {
-    const hist = loadHistory(getOrCreateSession());
+    // 🔧 usava getOrCreateSession() aqui (criava outro id). Agora usa o sessionId memoizado.
+    const hist = loadHistory(sessionId);
     return hist?.length ? hist : [{ id: genId(), role: "assistant", content: WELCOME }];
   });
   const [input, setInput] = useState("");
@@ -163,16 +164,19 @@ export default function ChatWidget({
     try {
       setSending(true);
 
-      if (DEBUG) console.log("[WIDGET] POST", {
-        endpoint,
-        sessionId,
-        body: { action: "sendMessage", chatInput: text }
-      });
+      if (DEBUG) {
+        const resolved = new URL(endpoint, window.location.origin).href;
+        console.log("[WIDGET] POST", {
+          endpoint,
+          resolved,
+          sessionId,
+          body: { action: "sendMessage", chatInput: text }
+        });
+      }
 
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        mode: "cors",
         body: JSON.stringify({
           sessionId,
           action: "sendMessage",
@@ -189,7 +193,9 @@ export default function ChatWidget({
       }
 
       if (!res.ok) {
-        throw new Error((typeof out === "object" && out?.error) || `Erro ${res.status}`);
+        // Ajuda a debugar 405 de caminho errado
+        const hint = res.status === 405 ? " (verifique se o endpoint é absoluto: /api/support)" : "";
+        throw new Error((typeof out === "object" && out?.error) || `Erro ${res.status}${hint}`);
       }
 
       const answer = extractAnswer(out);
