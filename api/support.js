@@ -1,13 +1,16 @@
-// api/support.js  (Vercel Node.js Serverless Function - ESM)
+// api/support.js  (Vercel Node.js Serverless Function - ESM, Node 20)
 
-// 1) URL principal do seu webhook n8n (pode trocar por env também)
-const PRIMARY = process.env.N8N_WEBHOOK_URL
-  || "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
+// <<< ajuste aqui se quiser usar variável de ambiente >>>
+const PRIMARY =
+  process.env.N8N_WEBHOOK_URL ||
+  "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
 
-// 2) Helpers
+const TIMEOUT_MS = 25000;
+
 function unique(list) {
   return [...new Set(list)];
 }
+
 function buildCandidates(url) {
   const withTest = url.replace("/webhook/", "/webhook-test/");
   const hasChat = url.endsWith("/chat");
@@ -15,91 +18,138 @@ function buildCandidates(url) {
   const withChat = hasChat ? url : url.replace(/\/$/, "") + "/chat";
 
   return unique([
-    url,                 // prod (entrada)
-    withTest,            // test
-    withoutChat,         // prod sem /chat
-    withChat,            // prod com /chat
-    withTest.endsWith("/chat") ? withTest.replace(/\/chat$/, "") : withTest + "/chat", // test com/sem chat
+    url,
+    withTest,
+    withoutChat,
+    withChat,
+    withTest.endsWith("/chat") ? withTest.replace(/\/chat$/, "") : withTest + "/chat",
   ]);
 }
 
-// 3) Handler
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (c) => (data += c));
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
+}
+
 export default async function handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  // Saúde rápida p/ GET (ajuda testar em /api/support)
-  if (req.method === "GET") {
-    res.status(405).json({ ok: false, error: "Method not allowed", hint: "Use POST" });
-    return;
-  }
-
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
-  }
-  if (req.method !== "POST") {
-    res.status(405).json({ ok: false, error: "Method not allowed" });
-    return;
-  }
-
+  const startedAt = Date.now();
   try {
-    // 4) fetch compat (Node 18+ tem fetch global; se não tiver, polyfill)
-    const fetchFn = globalThis.fetch ?? (await import("node-fetch")).default;
+    // CORS
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS, GET");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-    // 5) corpo
-    const payload =
-      typeof req.body === "string" ? req.body : JSON.stringify(req.body || {});
+    if (req.method === "OPTIONS") {
+      console.log("[cw-proxy] OPTIONS preflight");
+      res.status(204).end();
+      return;
+    }
 
+    if (req.method === "GET") {
+      // health check amigável
+      console.log("[cw-proxy] GET health");
+      res.status(200).json({
+        ok: true,
+        info: "Use POST para encaminhar ao n8n",
+        node: process.version,
+        primary: PRIMARY,
+      });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      console.log("[cw-proxy] 405 method=", req.method);
+      res.status(405).json({ ok: false, error: "Method not allowed" });
+      return;
+    }
+
+    // Lê corpo cru SEM depender de parsers externos
+    const raw = await readBody(req);
+    const size = Buffer.byteLength(raw || "");
+    let parsed;
+    try {
+      parsed = raw ? JSON.parse(raw) : {};
+    } catch {
+      parsed = raw || {};
+    }
+
+    console.log("[cw-proxy] IN", {
+      method: req.method,
+      url: req.url,
+      contentType: req.headers["content-type"],
+      bytes: size,
+      keys: typeof parsed === "object" && parsed ? Object.keys(parsed) : typeof parsed,
+    });
+
+    const payload = typeof parsed === "string" ? parsed : JSON.stringify(parsed || {});
     const candidates = buildCandidates(PRIMARY);
+    console.log("[cw-proxy] candidates", candidates);
+
     const tried = [];
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort("upstream-timeout"), TIMEOUT_MS);
 
     for (const url of candidates) {
       try {
-        const upstream = await fetchFn(url, {
+        console.log("[cw-proxy] TRY", url);
+        const upstream = await fetch(url, {
           method: "POST",
           headers: { "content-type": "application/json", accept: "*/*" },
           body: payload,
+          signal: ctrl.signal,
         });
 
         const text = await upstream.text();
+        console.log("[cw-proxy] RESP", { url, status: upstream.status, len: text.length, snippet: text.slice(0, 200) });
 
-        // Propaga qual URL respondeu
         res.setHeader("x-cw-proxy-target", url);
 
         if (![404, 405].includes(upstream.status)) {
+          // devolve do jeito que veio
           try {
             const json = JSON.parse(text);
+            clearTimeout(t);
             res.status(upstream.status).json(json);
+            console.log("[cw-proxy] OK_JSON via", url, "took", Date.now() - startedAt, "ms");
             return;
           } catch {
+            clearTimeout(t);
             res.status(upstream.status).send(text);
+            console.log("[cw-proxy] OK_TEXT via", url, "took", Date.now() - startedAt, "ms");
             return;
           }
         }
 
         tried.push({ url, status: upstream.status, body: text.slice(0, 200) });
       } catch (e) {
-        tried.push({ url, error: String(e?.message || e) });
+        const msg = e?.name === "AbortError" ? "AbortError: upstream-timeout" : String(e?.message || e);
+        console.error("[cw-proxy] ERR_FETCH", url, msg);
+        tried.push({ url, error: msg });
+        if (e?.name === "AbortError") break; // estoura geral no timeout
       }
     }
 
-    // Se nada funcionou:
+    clearTimeout(t);
+    console.error("[cw-proxy] NO_MATCH 502", tried);
     res.status(502).json({
       ok: false,
-      error: "Nenhum endpoint do n8n respondeu (404/405).",
-      hint: "Ative o workflow, confira o método POST e o path /chat.",
+      error: "Nenhum endpoint do n8n respondeu além de 404/405.",
+      hint: "Ative o workflow, confirme método POST e path /chat (ou use /webhook-test/ em modo teste).",
       tried,
+      took_ms: Date.now() - startedAt,
     });
   } catch (err) {
-    // Erro de inicialização/execução (pega casos de módulo/ambiente)
+    console.error("[cw-proxy] FATAL 500", err?.stack || err);
     res.status(500).json({
       ok: false,
       error: "Proxy failure",
       message: String(err?.message || err),
       stack: process.env.NODE_ENV === "production" ? undefined : err?.stack,
+      took_ms: Date.now() - startedAt,
     });
   }
 }
