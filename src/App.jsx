@@ -5,6 +5,7 @@ import Conversor from "./components/Conversor.jsx";
 import PlanilhaOficial from "./components/PlanilhaOficial.jsx";
 import SupportInsights from "./components/SupportInsights.jsx";
 import VideoCenter from "./components/VideoCenter.jsx";
+import ChatWidget from "./components/ChatWidget/index.jsx";
 
 /* Sobe o scroll ao trocar de rota */
 function ScrollToTop() {
@@ -15,6 +16,16 @@ function ScrollToTop() {
 
 export default function App() {
   const { isDark, toggleDarkMode } = useDarkMode();
+
+  // -------------------------------------------------------------
+  // ENDPOINT DINÂMICO:
+  // - Em DEV (Vite): usa o webhook do n8n diretamente.
+  // - Em PRODUÇÃO: usa a serverless function respeitando o BASE_URL (/suporte-cw/).
+  // -------------------------------------------------------------
+  const isDev = import.meta.env.DEV;
+  const PROD_API = `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/api/support`;
+  const DEV_API  = "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
+  const API_ENDPOINT = isDev ? DEV_API : PROD_API;
 
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
@@ -115,6 +126,14 @@ export default function App() {
           </div>
         </footer>
       </div>
+
+      {/* Widget montado fora das rotas: aparece em TODAS as páginas */}
+      <ChatWidget
+        endpoint={API_ENDPOINT}
+        title="CW • Suporte"
+        accent="from-[#A543FB] to-[#7e22ce]"
+        startOpen={false}
+      />
     </BrowserRouter>
   );
 }
