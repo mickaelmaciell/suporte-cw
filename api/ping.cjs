@@ -1,11 +1,12 @@
-// api/ping.cjs
-module.exports = (req, res) => {
-  res.setHeader("content-type", "application/json; charset=utf-8");
-  res.setHeader("x-cw-ping", "ok");
-  res.status(200).end(JSON.stringify({
+// api/ping.js
+export const config = { runtime: "edge" };
+
+export default function handler(req) {
+  const rid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const h = new Headers({ "content-type": "application/json; charset=utf-8", "x-cw-rid": rid });
+  return new Response(JSON.stringify({
     ok: true,
     ts: new Date().toISOString(),
-    node: process.versions?.node || null,
-    vercelId: req.headers?.["x-vercel-id"] || null
-  }));
-};
+    ua: req.headers.get("user-agent") || null
+  }), { status: 200, headers: h });
+}
