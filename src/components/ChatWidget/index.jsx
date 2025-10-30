@@ -3,18 +3,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Message from "./Message";
-import SourceList from "./SourceList"; // só renderiza se SHOW_CITATIONS=true
+import SourceList from "./SourceList";
 
 const WELCOME =
   "Olá! Sou o assistente do suporte. Me diga seu problema (ex.: QZ Tray ícone vermelho, não imprime).";
 
-// ⚠️ MUITO IMPORTANTE: endpoint absoluto para não virar /<base>/api/support
+// Endpoint absoluto (não depende do basename do SPA)
 const DEFAULT_ENDPOINT = "/api/support";
+
+// (Opcional) fallback direto ao n8n se o proxy falhar (exige CORS no n8n)
+const N8N_FALLBACK_URL = "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
+const ENABLE_N8N_FALLBACK = true;
 
 const DEBUG = true;
 const SHOW_CITATIONS = false;
-const RATE_LIMIT_MS = 700;   // evita duplo envio
-const TIMEOUT_MS = 30000;    // timeout de rede
+const RATE_LIMIT_MS = 700;
+const TIMEOUT_MS = 30000;
 
 function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -42,29 +46,22 @@ function loadHistory(sessionId) {
   }
 }
 function saveHistory(sessionId, messages) {
-  try {
-    const trimmed = messages.slice(-100);
-    localStorage.setItem(`cw_history_${sessionId}`, JSON.stringify(trimmed));
-  } catch {}
+  try { localStorage.setItem(`cw_history_${sessionId}`, JSON.stringify(messages.slice(-100))); } catch {}
 }
 
 async function parseSmart(res) {
   const clone = res.clone();
-  try {
-    return await clone.json();
-  } catch {
-    const txt = await res.text();
-    return txt;
-  }
+  try { return await clone.json(); }
+  catch { return await res.text(); }
 }
 
 function unwrap(obj) {
   if (!obj || typeof obj !== "object") return obj;
   if (Array.isArray(obj)) return obj.length === 1 ? unwrap(obj[0]) : obj;
-  if ("json" in obj && typeof obj.json === "object") return unwrap(obj.json);
-  if (obj.data && typeof obj.data === "object") return unwrap(obj.data);
-  if (obj.output && typeof obj.output === "object") return unwrap(obj.output);
-  if (obj.body && typeof obj.body === "object") return unwrap(obj.body);
+  if ("json"   in obj && typeof obj.json   === "object") return unwrap(obj.json);
+  if ("data"   in obj && typeof obj.data   === "object") return unwrap(obj.data);
+  if ("output" in obj && typeof obj.output === "object") return unwrap(obj.output);
+  if ("body"   in obj && typeof obj.body   === "object") return unwrap(obj.body);
   return obj;
 }
 
@@ -95,7 +92,6 @@ export default function ChatWidget({
   const [open, setOpen] = useState(embed ? true : startOpen);
   const sessionId = useMemo(getOrCreateSession, []);
   const [messages, setMessages] = useState(() => {
-    // 🔧 usava getOrCreateSession() aqui (criava outro id). Agora usa o sessionId memoizado.
     const hist = loadHistory(sessionId);
     return hist?.length ? hist : [{ id: genId(), role: "assistant", content: WELCOME }];
   });
@@ -112,9 +108,7 @@ export default function ChatWidget({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, open]);
 
-  useEffect(() => {
-    saveHistory(sessionId, messages);
-  }, [sessionId, messages]);
+  useEffect(() => { saveHistory(sessionId, messages); }, [sessionId, messages]);
 
   useEffect(() => {
     function onOnline() { setOnline(true); }
@@ -134,29 +128,32 @@ export default function ChatWidget({
     setMessages([{ id: genId(), role: "assistant", content: WELCOME }]);
   }
 
+  async function postJson(url, json, signal) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(json),
+      signal,
+    });
+    const out = await parseSmart(res);
+    return { res, out };
+  }
+
   async function send() {
     const now = Date.now();
-    if (now - lastSendRef.current < RATE_LIMIT_MS) return; // throttle
+    if (now - lastSendRef.current < RATE_LIMIT_MS) return;
     lastSendRef.current = now;
 
     const text = input.trim();
     if (!text || sending) return;
-    if (!online) {
-      setError("Você está offline. Verifique sua conexão.");
-      return;
-    }
+    if (!online) { setError("Você está offline. Verifique sua conexão."); return; }
 
     setError("");
     setInput("");
 
     const userMsg = { id: genId(), role: "user", content: text };
     const pendingId = genId();
-
-    setMessages((m) => [
-      ...m,
-      userMsg,
-      { id: pendingId, role: "assistant", content: "Pensando...", pending: true },
-    ]);
+    setMessages((m) => [...m, userMsg, { id: pendingId, role: "assistant", content: "Pensando...", pending: true }]);
 
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort("timeout"), TIMEOUT_MS);
@@ -164,37 +161,39 @@ export default function ChatWidget({
     try {
       setSending(true);
 
-      if (DEBUG) {
-        const resolved = new URL(endpoint, window.location.origin).href;
-        console.log("[WIDGET] POST", {
-          endpoint,
-          resolved,
-          sessionId,
-          body: { action: "sendMessage", chatInput: text }
-        });
-      }
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          action: "sendMessage",
-          chatInput: text,
-        }),
-        signal: ctrl.signal,
+      const resolved = new URL(endpoint, window.location.origin).href;
+      if (DEBUG) console.log("[WIDGET] POST", {
+        endpoint, resolved, sessionId,
+        body: { action: "sendMessage", chatInput: text }
       });
 
-      const out = await parseSmart(res);
-      const proxyTarget = res.headers?.get?.("x-cw-proxy-target");
+      // 1) Chama o proxy
+      let { res, out } = await postJson(endpoint, {
+        sessionId,
+        action: "sendMessage",
+        chatInput: text,
+      }, ctrl.signal);
+
       if (DEBUG) {
+        const proxyTarget = res.headers?.get?.("x-cw-proxy-target");
         console.log("[CHAT out]", out);
         console.log("[WIDGET] status:", res.status, "| x-cw-proxy-target:", proxyTarget);
       }
 
+      // 2) Se o proxy falhar, tenta fallback direto no n8n (CORS deve estar permitido no n8n)
+      if (!res.ok && ENABLE_N8N_FALLBACK) {
+        console.warn("[WIDGET] Proxy falhou, tentando fallback N8N direto…", res.status);
+        ({ res, out } = await postJson(N8N_FALLBACK_URL, {
+          sessionId,
+          action: "sendMessage",
+          chatInput: text,
+        }, ctrl.signal));
+        console.log("[WIDGET][FALLBACK] status:", res.status, "| body:", out);
+      }
+
+      // Se ainda não ok, mostra erro no chat
       if (!res.ok) {
-        // Ajuda a debugar 405 de caminho errado
-        const hint = res.status === 405 ? " (verifique se o endpoint é absoluto: /api/support)" : "";
+        const hint = res.status === 405 ? " (verifique se o endpoint /api/support está absoluto e acessível)" : "";
         throw new Error((typeof out === "object" && out?.error) || `Erro ${res.status}${hint}`);
       }
 
@@ -204,15 +203,9 @@ export default function ChatWidget({
       setMessages((m) =>
         m
           .filter((msg) => msg.id !== pendingId)
-          .concat([
-            {
-              id: genId(),
-              role: "assistant",
-              content: answer,
-              ...(SHOW_CITATIONS ? { citations } : {}),
-            },
-          ])
+          .concat([{ id: genId(), role: "assistant", content: answer, ...(SHOW_CITATIONS ? { citations } : {}) }])
       );
+
     } catch (e) {
       setMessages((m) =>
         m.map((msg) =>
@@ -284,9 +277,7 @@ export default function ChatWidget({
     <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-br from-purple-50/50 to-white">
       {messages.map((m) => (
         <div key={m.id}>
-          <Message role={m.role} pending={m.pending}>
-            {m.content}
-          </Message>
+          <Message role={m.role} pending={m.pending}>{m.content}</Message>
           {SHOW_CITATIONS && m.citations?.length ? <SourceList items={m.citations} /> : null}
         </div>
       ))}
