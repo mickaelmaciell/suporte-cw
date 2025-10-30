@@ -5,54 +5,37 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Message from "./Message";
 import SourceList from "./SourceList";
 
+/* =========================== CONFIG =========================== */
+
 const WELCOME =
   "Olá! Sou o assistente do suporte. Me diga seu problema (ex.: QZ Tray ícone vermelho, não imprime).";
 
-// Endpoint absoluto (não depende do basename do SPA)
+// Sempre absoluto para evitar problemas com basename de SPA
 const DEFAULT_ENDPOINT = "/api/support";
 
-// (Opcional) fallback direto ao n8n se o proxy falhar (exige CORS no n8n)
-const N8N_FALLBACK_URL = "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
+// Fallback direto no n8n (precisa estar com CORS permitido no n8n)
+const N8N_FALLBACK_URL =
+  "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
 const ENABLE_N8N_FALLBACK = true;
 
 const DEBUG = true;
 const SHOW_CITATIONS = false;
-const RATE_LIMIT_MS = 700;
-const TIMEOUT_MS = 30000;
+const RATE_LIMIT_MS = 700; // throttle contra duplo clique
+const TIMEOUT_MS = 30000;  // timeout de rede
+
+/* =========================== UTILS =========================== */
 
 function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-function getOrCreateSession() {
-  if (typeof window === "undefined") return "srv-" + genId();
-  const KEY = "cw_session_id";
-  let sid = localStorage.getItem(KEY);
-  if (!sid) {
-    sid = (crypto?.randomUUID && crypto.randomUUID()) || "cli-" + genId();
-    localStorage.setItem(KEY, sid);
-  }
-  return sid;
-}
-
-function loadHistory(sessionId) {
-  try {
-    const raw = localStorage.getItem(`cw_history_${sessionId}`);
-    if (!raw) return null;
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : null;
-  } catch {
-    return null;
-  }
-}
-function saveHistory(sessionId, messages) {
-  try { localStorage.setItem(`cw_history_${sessionId}`, JSON.stringify(messages.slice(-100))); } catch {}
-}
-
 async function parseSmart(res) {
   const clone = res.clone();
-  try { return await clone.json(); }
-  catch { return await res.text(); }
+  try {
+    return await clone.json();
+  } catch {
+    return await res.text();
+  }
 }
 
 function unwrap(obj) {
@@ -82,6 +65,8 @@ function extractCitations(payload) {
   return Array.isArray(p?.citations) ? p.citations : p?.sources ?? [];
 }
 
+/* =========================== WIDGET =========================== */
+
 export default function ChatWidget({
   endpoint = DEFAULT_ENDPOINT,
   title = "CW • Suporte",
@@ -89,30 +74,39 @@ export default function ChatWidget({
   startOpen = false,
   embed = false,
 }) {
+  // Sessão efêmera: nova a cada montagem (não usa localStorage)
+  const sessionId = useMemo(() => `ephemeral-${genId()}`, []);
+
+  // Estado da UI
   const [open, setOpen] = useState(embed ? true : startOpen);
-  const sessionId = useMemo(getOrCreateSession, []);
-  const [messages, setMessages] = useState(() => {
-    const hist = loadHistory(sessionId);
-    return hist?.length ? hist : [{ id: genId(), role: "assistant", content: WELCOME }];
-  });
+  const [messages, setMessages] = useState([
+    { id: genId(), role: "assistant", content: WELCOME },
+  ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [online, setOnline] = useState(
+    typeof navigator === "undefined" ? true : navigator.onLine
+  );
 
+  // Saúde do proxy (checamos GET /api/support)
+  const [proxyHealthy, setProxyHealthy] = useState(null); // null=desconhecido, true=ok, false=down
+
+  // Infra
   const listRef = useRef(null);
   const lastSendRef = useRef(0);
+
+  /* ====================== EFFECTS / LOGS ====================== */
 
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, open]);
 
-  useEffect(() => { saveHistory(sessionId, messages); }, [sessionId, messages]);
-
+  // Online/Offline
   useEffect(() => {
-    function onOnline() { setOnline(true); }
-    function onOffline() { setOnline(false); }
+    function onOnline() { setOnline(true);  DEBUG && console.info("[WIDGET] navigator online"); }
+    function onOffline(){ setOnline(false); DEBUG && console.warn("[WIDGET] navigator offline"); }
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     return () => {
@@ -121,11 +115,37 @@ export default function ChatWidget({
     };
   }, []);
 
+  // Health check do proxy ao montar
+  useEffect(() => {
+    const resolved = new URL(endpoint, window.location.origin).href;
+    DEBUG && console.log("[WIDGET] mount", { endpoint, resolved, sessionId });
+
+    (async () => {
+      try {
+        const res = await fetch(endpoint, { method: "GET" });
+        const txt = await res.text().catch(() => "");
+        const xTarget = res.headers?.get?.("x-cw-proxy-target");
+        const healthy = res.ok;
+        setProxyHealthy(healthy);
+        DEBUG && console.log("[WIDGET][HEALTH]", {
+          status: res.status,
+          ok: res.ok,
+          "x-cw-proxy-target": xTarget,
+          sample: txt.slice(0, 160),
+        });
+      } catch (e) {
+        setProxyHealthy(false);
+        console.error("[WIDGET][HEALTH][ERR]", e);
+      }
+    })();
+  }, [endpoint, sessionId]);
+
+  /* ====================== HANDLERS ====================== */
+
   function resetChat() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(`cw_history_${sessionId}`);
-    }
     setMessages([{ id: genId(), role: "assistant", content: WELCOME }]);
+    setError("");
+    DEBUG && console.log("[WIDGET] chat resetado (sessão permanece efêmera)", { sessionId });
   }
 
   async function postJson(url, json, signal) {
@@ -141,19 +161,27 @@ export default function ChatWidget({
 
   async function send() {
     const now = Date.now();
-    if (now - lastSendRef.current < RATE_LIMIT_MS) return;
+    if (now - lastSendRef.current < RATE_LIMIT_MS) return; // throttle
     lastSendRef.current = now;
 
     const text = input.trim();
     if (!text || sending) return;
-    if (!online) { setError("Você está offline. Verifique sua conexão."); return; }
+    if (!online) {
+      setError("Você está offline. Verifique sua conexão.");
+      return;
+    }
 
     setError("");
     setInput("");
 
     const userMsg = { id: genId(), role: "user", content: text };
     const pendingId = genId();
-    setMessages((m) => [...m, userMsg, { id: pendingId, role: "assistant", content: "Pensando...", pending: true }]);
+
+    setMessages((m) => [
+      ...m,
+      userMsg,
+      { id: pendingId, role: "assistant", content: "Pensando...", pending: true },
+    ]);
 
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort("timeout"), TIMEOUT_MS);
@@ -162,39 +190,53 @@ export default function ChatWidget({
       setSending(true);
 
       const resolved = new URL(endpoint, window.location.origin).href;
-      if (DEBUG) console.log("[WIDGET] POST", {
-        endpoint, resolved, sessionId,
-        body: { action: "sendMessage", chatInput: text }
+      DEBUG && console.log("[WIDGET] POST >>", {
+        endpoint,
+        resolved,
+        sessionId,
+        body: { action: "sendMessage", chatInput: text },
+        proxyHealthy,
       });
 
-      // 1) Chama o proxy
-      let { res, out } = await postJson(endpoint, {
-        sessionId,
-        action: "sendMessage",
-        chatInput: text,
-      }, ctrl.signal);
+      // 1) Tenta o proxy
+      let { res, out } = await postJson(
+        endpoint,
+        { sessionId, action: "sendMessage", chatInput: text },
+        ctrl.signal
+      );
 
-      if (DEBUG) {
-        const proxyTarget = res.headers?.get?.("x-cw-proxy-target");
-        console.log("[CHAT out]", out);
-        console.log("[WIDGET] status:", res.status, "| x-cw-proxy-target:", proxyTarget);
-      }
+      const proxyTarget = res.headers?.get?.("x-cw-proxy-target");
+      DEBUG && console.log("[WIDGET][PROXY][RESP]", {
+        status: res.status,
+        ok: res.ok,
+        "x-cw-proxy-target": proxyTarget,
+        bodyType: typeof out,
+        sample: typeof out === "string" ? out.slice(0, 160) : JSON.stringify(out).slice(0, 160),
+      });
 
-      // 2) Se o proxy falhar, tenta fallback direto no n8n (CORS deve estar permitido no n8n)
+      // 2) Se o proxy falhar, tenta fallback no n8n (quando habilitado)
       if (!res.ok && ENABLE_N8N_FALLBACK) {
-        console.warn("[WIDGET] Proxy falhou, tentando fallback N8N direto…", res.status);
-        ({ res, out } = await postJson(N8N_FALLBACK_URL, {
-          sessionId,
-          action: "sendMessage",
-          chatInput: text,
-        }, ctrl.signal));
-        console.log("[WIDGET][FALLBACK] status:", res.status, "| body:", out);
+        console.warn("[WIDGET] Proxy falhou, tentando fallback direto no N8N…");
+        ({ res, out } = await postJson(
+          N8N_FALLBACK_URL,
+          { sessionId, action: "sendMessage", chatInput: text },
+          ctrl.signal
+        ));
+        DEBUG && console.log("[WIDGET][FALLBACK][RESP]", {
+          status: res.status,
+          ok: res.ok,
+          bodyType: typeof out,
+          sample: typeof out === "string" ? out.slice(0, 160) : JSON.stringify(out).slice(0, 160),
+        });
       }
 
-      // Se ainda não ok, mostra erro no chat
       if (!res.ok) {
-        const hint = res.status === 405 ? " (verifique se o endpoint /api/support está absoluto e acessível)" : "";
-        throw new Error((typeof out === "object" && out?.error) || `Erro ${res.status}${hint}`);
+        const hint = res.status === 405
+          ? " (verifique se /api/support está absoluto e acessível)"
+          : "";
+        throw new Error(
+          (typeof out === "object" && out?.error) || `Erro ${res.status}${hint}`
+        );
       }
 
       const answer = extractAnswer(out);
@@ -203,9 +245,15 @@ export default function ChatWidget({
       setMessages((m) =>
         m
           .filter((msg) => msg.id !== pendingId)
-          .concat([{ id: genId(), role: "assistant", content: answer, ...(SHOW_CITATIONS ? { citations } : {}) }])
+          .concat([
+            {
+              id: genId(),
+              role: "assistant",
+              content: answer,
+              ...(SHOW_CITATIONS ? { citations } : {}),
+            },
+          ])
       );
-
     } catch (e) {
       setMessages((m) =>
         m.map((msg) =>
@@ -221,8 +269,12 @@ export default function ChatWidget({
             : msg
         )
       );
-      setError(e?.name === "AbortError" ? "Tempo de resposta excedido." : e?.message || "Falha ao enviar");
-      if (DEBUG) console.error("[WIDGET] ERROR", e);
+      setError(
+        e?.name === "AbortError"
+          ? "Tempo de resposta excedido."
+          : e?.message || "Falha ao enviar"
+      );
+      console.error("[WIDGET][ERROR]", e);
     } finally {
       clearTimeout(to);
       setSending(false);
@@ -236,11 +288,15 @@ export default function ChatWidget({
     }
   }
 
+  /* ====================== RENDER ====================== */
+
   const headerEl = (
     <div className={`relative bg-gradient-to-br ${accent} px-5 py-4 text-white rounded-t-2xl`}>
       <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center font-bold text-[0.8rem]">CW</div>
+          <div className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center font-bold text-[0.8rem]">
+            CW
+          </div>
           <div className="leading-tight">
             <h3 className="text-base font-bold text-white">{title}</h3>
             <p className="text-[11px] text-white/80 flex items-center gap-2">
@@ -249,6 +305,7 @@ export default function ChatWidget({
             </p>
           </div>
         </div>
+
         {!embed && (
           <div className="flex items-center gap-2">
             <button
@@ -270,15 +327,29 @@ export default function ChatWidget({
           </div>
         )}
       </div>
+
+      {/* Banner informativo do health/fallback */}
+      {proxyHealthy === false && (
+        <div className="mt-2 text-[11px] bg-black/15 rounded px-2 py-1">
+          Proxy indisponível. Vou tentar enviar direto ao n8n (fallback).
+        </div>
+      )}
     </div>
   );
 
   const messagesEl = (
-    <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-br from-purple-50/50 to-white">
+    <div
+      ref={listRef}
+      className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-br from-purple-50/50 to-white"
+    >
       {messages.map((m) => (
         <div key={m.id}>
-          <Message role={m.role} pending={m.pending}>{m.content}</Message>
-          {SHOW_CITATIONS && m.citations?.length ? <SourceList items={m.citations} /> : null}
+          <Message role={m.role} pending={m.pending}>
+            {m.content}
+          </Message>
+          {SHOW_CITATIONS && m.citations?.length ? (
+            <SourceList items={m.citations} />
+          ) : null}
         </div>
       ))}
     </div>
@@ -315,7 +386,10 @@ export default function ChatWidget({
     return (
       <div className="relative w-full h-[480px] overflow-hidden rounded-2xl shadow-xl flex flex-col border border-white/10 bg-white">
         {headerEl}
-        <div className="flex flex-col flex-1 min-h-0">{messagesEl}{inputEl}</div>
+        <div className="flex flex-col flex-1 min-h-0">
+          {messagesEl}
+          {inputEl}
+        </div>
       </div>
     );
   }
@@ -334,7 +408,10 @@ export default function ChatWidget({
       {open && (
         <div className="fixed bottom-6 right-6 z-50 w-[min(94vw,420px)] overflow-hidden rounded-2xl shadow-2xl flex flex-col border border-white/10 max-h-[60vh] bg-white">
           {headerEl}
-          <div className="flex flex-col flex-1 min-h-0">{messagesEl}{inputEl}</div>
+          <div className="flex flex-col flex-1 min-h-0">
+            {messagesEl}
+            {inputEl}
+          </div>
         </div>
       )}
     </>
