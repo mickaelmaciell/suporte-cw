@@ -1,22 +1,21 @@
-// api/support.js  (Vercel Node.js Serverless Function - ESM, Node 20)
+// api/support.js  (Vercel Serverless Function - CommonJS)
+"use strict";
 
-// <<< ajuste aqui se quiser usar variável de ambiente >>>
+// Altere via env se quiser: N8N_WEBHOOK_URL
 const PRIMARY =
   process.env.N8N_WEBHOOK_URL ||
   "https://suportecw.app.n8n.cloud/webhook/3ac05e0c-46f7-475c-989b-708f800f4abf/chat";
 
 const TIMEOUT_MS = 25000;
 
-function unique(list) {
-  return [...new Set(list)];
-}
+/** Utils */
+function unique(list) { return [...new Set(list)]; }
 
 function buildCandidates(url) {
   const withTest = url.replace("/webhook/", "/webhook-test/");
   const hasChat = url.endsWith("/chat");
   const withoutChat = hasChat ? url.replace(/\/chat$/, "") : url;
   const withChat = hasChat ? url : url.replace(/\/$/, "") + "/chat";
-
   return unique([
     url,
     withTest,
@@ -26,6 +25,7 @@ function buildCandidates(url) {
   ]);
 }
 
+// Lê o corpo cru (independe de qualquer parser)
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
@@ -35,8 +35,9 @@ function readBody(req) {
   });
 }
 
-export default async function handler(req, res) {
+module.exports = async (req, res) => {
   const startedAt = Date.now();
+
   try {
     // CORS
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -50,13 +51,13 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "GET") {
-      // health check amigável
+      // Health check amigável
       console.log("[cw-proxy] GET health");
       res.status(200).json({
         ok: true,
         info: "Use POST para encaminhar ao n8n",
         node: process.version,
-        primary: PRIMARY,
+        primary: PRIMARY
       });
       return;
     }
@@ -67,22 +68,18 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Lê corpo cru SEM depender de parsers externos
+    // Corpo cru
     const raw = await readBody(req);
     const size = Buffer.byteLength(raw || "");
     let parsed;
-    try {
-      parsed = raw ? JSON.parse(raw) : {};
-    } catch {
-      parsed = raw || {};
-    }
+    try { parsed = raw ? JSON.parse(raw) : {}; } catch { parsed = raw || {}; }
 
     console.log("[cw-proxy] IN", {
       method: req.method,
       url: req.url,
       contentType: req.headers["content-type"],
       bytes: size,
-      keys: typeof parsed === "object" && parsed ? Object.keys(parsed) : typeof parsed,
+      keys: typeof parsed === "object" && parsed ? Object.keys(parsed) : typeof parsed
     });
 
     const payload = typeof parsed === "string" ? parsed : JSON.stringify(parsed || {});
@@ -100,12 +97,18 @@ export default async function handler(req, res) {
           method: "POST",
           headers: { "content-type": "application/json", accept: "*/*" },
           body: payload,
-          signal: ctrl.signal,
+          signal: ctrl.signal
         });
 
         const text = await upstream.text();
-        console.log("[cw-proxy] RESP", { url, status: upstream.status, len: text.length, snippet: text.slice(0, 200) });
+        console.log("[cw-proxy] RESP", {
+          url,
+          status: upstream.status,
+          len: text.length,
+          snippet: text.slice(0, 200)
+        });
 
+        // expõe qual URL respondeu (aparece no front)
         res.setHeader("x-cw-proxy-target", url);
 
         if (![404, 405].includes(upstream.status)) {
@@ -113,13 +116,13 @@ export default async function handler(req, res) {
           try {
             const json = JSON.parse(text);
             clearTimeout(t);
-            res.status(upstream.status).json(json);
             console.log("[cw-proxy] OK_JSON via", url, "took", Date.now() - startedAt, "ms");
+            res.status(upstream.status).json(json);
             return;
           } catch {
             clearTimeout(t);
-            res.status(upstream.status).send(text);
             console.log("[cw-proxy] OK_TEXT via", url, "took", Date.now() - startedAt, "ms");
+            res.status(upstream.status).send(text);
             return;
           }
         }
@@ -129,7 +132,7 @@ export default async function handler(req, res) {
         const msg = e?.name === "AbortError" ? "AbortError: upstream-timeout" : String(e?.message || e);
         console.error("[cw-proxy] ERR_FETCH", url, msg);
         tried.push({ url, error: msg });
-        if (e?.name === "AbortError") break; // estoura geral no timeout
+        if (e?.name === "AbortError") break; // parou por timeout
       }
     }
 
@@ -138,9 +141,9 @@ export default async function handler(req, res) {
     res.status(502).json({
       ok: false,
       error: "Nenhum endpoint do n8n respondeu além de 404/405.",
-      hint: "Ative o workflow, confirme método POST e path /chat (ou use /webhook-test/ em modo teste).",
+      hint: "Ative o workflow, confirme método POST e path /chat (ou /webhook-test/ em modo teste).",
       tried,
-      took_ms: Date.now() - startedAt,
+      took_ms: Date.now() - startedAt
     });
   } catch (err) {
     console.error("[cw-proxy] FATAL 500", err?.stack || err);
@@ -149,7 +152,7 @@ export default async function handler(req, res) {
       error: "Proxy failure",
       message: String(err?.message || err),
       stack: process.env.NODE_ENV === "production" ? undefined : err?.stack,
-      took_ms: Date.now() - startedAt,
+      took_ms: Date.now() - startedAt
     });
   }
-}
+};

@@ -2,7 +2,7 @@
 export default function SourceList({ items = [] }) {
   if (!items?.length) return null;
 
-  // remove duplicados simples
+  // remove duplicados
   const seen = new Set();
   const list = items.filter((it) => {
     const key = typeof it === "string" ? it : JSON.stringify(it);
@@ -28,12 +28,8 @@ export default function SourceList({ items = [] }) {
       );
     }
 
-    // objeto: tenta { title, url } ou mostra algo legível
     const title =
-      it?.title ||
-      it?.name ||
-      it?.slug ||
-      (it?.doc_id ? `Documento #${it.doc_id}` : "Fonte");
+      it?.title || it?.name || it?.slug || (it?.doc_id ? `Documento #${it.doc_id}` : "Fonte");
 
     if (it?.url) {
       return (

@@ -3,12 +3,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Message from "./Message";
-import SourceList from "./SourceList"; // não renderizamos se SHOW_CITATIONS=false
+import SourceList from "./SourceList"; // só renderiza se SHOW_CITATIONS=true
 
 const WELCOME =
   "Olá! Sou o assistente do suporte. Me diga seu problema (ex.: QZ Tray ícone vermelho, não imprime).";
 
-// Default aponta para o proxy local/produção respeitando BASE_URL
+// Endpoint default relativo (funciona em subpaths); pode sobrescrever por prop
 const DEFAULT_ENDPOINT = "./api/support";
 
 const DEBUG = true;
@@ -43,20 +43,18 @@ function loadHistory(sessionId) {
 }
 function saveHistory(sessionId, messages) {
   try {
-    // limita tamanho pra não explodir o localStorage (~5MB)
     const trimmed = messages.slice(-100);
     localStorage.setItem(`cw_history_${sessionId}`, JSON.stringify(trimmed));
   } catch {}
 }
 
-// Desembrulha JSON OU texto puro
 async function parseSmart(res) {
   const clone = res.clone();
   try {
     return await clone.json();
   } catch {
     const txt = await res.text();
-    return txt; // se não for JSON, usa texto direto
+    return txt;
   }
 }
 
@@ -97,7 +95,6 @@ export default function ChatWidget({
   const [open, setOpen] = useState(embed ? true : startOpen);
   const sessionId = useMemo(getOrCreateSession, []);
   const [messages, setMessages] = useState(() => {
-    // tenta carregar histórico; senão, inicia com welcome
     const hist = loadHistory(getOrCreateSession());
     return hist?.length ? hist : [{ id: genId(), role: "assistant", content: WELCOME }];
   });
@@ -166,6 +163,12 @@ export default function ChatWidget({
     try {
       setSending(true);
 
+      if (DEBUG) console.log("[WIDGET] POST", {
+        endpoint,
+        sessionId,
+        body: { action: "sendMessage", chatInput: text }
+      });
+
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -179,12 +182,14 @@ export default function ChatWidget({
       });
 
       const out = await parseSmart(res);
-      if (DEBUG) console.log("[CHAT out]", out);
+      const proxyTarget = res.headers?.get?.("x-cw-proxy-target");
+      if (DEBUG) {
+        console.log("[CHAT out]", out);
+        console.log("[WIDGET] status:", res.status, "| x-cw-proxy-target:", proxyTarget);
+      }
 
       if (!res.ok) {
-        throw new Error(
-          (typeof out === "object" && out?.error) || `Erro ${res.status}`
-        );
+        throw new Error((typeof out === "object" && out?.error) || `Erro ${res.status}`);
       }
 
       const answer = extractAnswer(out);
@@ -217,11 +222,8 @@ export default function ChatWidget({
             : msg
         )
       );
-      setError(
-        e?.name === "AbortError"
-          ? "Tempo de resposta excedido."
-          : e?.message || "Falha ao enviar"
-      );
+      setError(e?.name === "AbortError" ? "Tempo de resposta excedido." : e?.message || "Falha ao enviar");
+      if (DEBUG) console.error("[WIDGET] ERROR", e);
     } finally {
       clearTimeout(to);
       setSending(false);
