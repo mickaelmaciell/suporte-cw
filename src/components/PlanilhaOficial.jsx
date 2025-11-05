@@ -18,7 +18,7 @@ const ALLOW_LANDLINE = false;
 /** Inserir '9' quando vierem 10 dígitos (compatível com seu código antigo) */
 const INFER_MISSING_9 = true;
 /** Validar DDD estritamente? (mantemos desativado para não derrubar válidos) */
-const STRICT_DDD = false;
+const STRICT_DDD = true;
 /** Rejeitar sequências óbvias 000..., 111... (opcional; ligado) */
 const REJECT_OBVIOUS_FAKE = true;
 /** Modo de saída do telefone: "br" | "digits" | "e164" */
