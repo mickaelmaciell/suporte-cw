@@ -957,7 +957,7 @@ export default function PlanilhaOficial() {
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
               Preencha os dados abaixo. Eles serão salvos automaticamente no banco
-              (Google Sheets/Drive) e, em seguida, a planilha será baixada.
+               e, em seguida, a planilha será baixada.
             </p>
 
             <form onSubmit={handleConfirmAndDownload} className="space-y-4">
