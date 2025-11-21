@@ -467,7 +467,7 @@ export default function PlanilhaOficial() {
       });
       // Em "no-cors" não dá para ler resposta, mas o pedido é enviado.
     } catch (err) {
-      console.error("Erro ao enviar para o banco simples:", err);
+      console.error("Erro ao enviar para o banco:", err);
       // Mesmo se der erro aqui, não vamos travar o download
     }
 
@@ -956,7 +956,7 @@ export default function PlanilhaOficial() {
               Salvar informações antes de baixar a planilha
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              Preencha os dados abaixo. Eles serão salvos automaticamente no banco simples
+              Preencha os dados abaixo. Eles serão salvos automaticamente no banco
               (Google Sheets/Drive) e, em seguida, a planilha será baixada.
             </p>
 
