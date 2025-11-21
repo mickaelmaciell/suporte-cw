@@ -18,7 +18,7 @@ const ALLOW_LANDLINE = false;
 /** Inserir '9' quando vierem 10 dígitos (compatível com seu código antigo) */
 const INFER_MISSING_9 = true;
 /** Validar DDD estritamente? (mantemos desativado para não derrubar válidos) */
-const STRICT_DDD = true;
+const STRICT_DDD = false;
 /** Rejeitar sequências óbvias 000..., 111... (opcional; ligado) */
 const REJECT_OBVIOUS_FAKE = true;
 /** Modo de saída do telefone: "br" | "digits" | "e164" */
@@ -95,6 +95,10 @@ function heuristicDelimiterDetect(sampleText = "") {
   counts.sort((a, b) => b.n - a.n);
   return counts[0]?.d || ",";
 }
+
+/* ========== URL do "banco simples" (Google Apps Script) ========== */
+const SIMPLE_DB_WEB_APP_URL =
+  "https://script.google.com/macros/s/AKfycbyi7CIehrRNSvCq76P8K0wLqP7uygF2g5KYBwlKtf0_Uo8_bPdAEDITSWhSHtpeaemFmg/exec";
 
 /* ========== Modelo de saída ========== */
 const MODEL_HEADERS = [
@@ -303,6 +307,24 @@ export default function PlanilhaOficial() {
   /* ======= Mostrar/Esconder métricas — começa escondido ======= */
   const [showDeletedSummary, setShowDeletedSummary] = useState(false);
 
+  /* ======= Prévia da planilha corrigida (3 primeiras linhas) ======= */
+  const [previewRows, setPreviewRows] = useState([]);
+
+  /* ======= Modal para salvar no "banco simples" ======= */
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [pendingDownloadAction, setPendingDownloadAction] = useState(null); // "single" | "allParts"
+  const [saveForm, setSaveForm] = useState({
+    atendente: "",
+    estabelecimento: "",
+    portal: "",
+  });
+  const [saveError, setSaveError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  /* ======= CSVs para envio ao Apps Script ======= */
+  const [originalCSV, setOriginalCSV] = useState("");   // planilha importada (bruta)
+  const [fullOutputCSV, setFullOutputCSV] = useState(""); // planilha corrigida (completa)
+
   const hasResult = useMemo(
     () => Boolean(outputCSV?.length || outputParts.length),
     [outputCSV, outputParts]
@@ -354,6 +376,14 @@ export default function PlanilhaOficial() {
       options: [],
     });
     setShowDeletedSummary(false);
+    setPreviewRows([]);
+    setSaveModalOpen(false);
+    setPendingDownloadAction(null);
+    setSaveForm({ atendente: "", estabelecimento: "", portal: "" });
+    setSaveError("");
+    setIsSaving(false);
+    setOriginalCSV("");
+    setFullOutputCSV("");
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -372,14 +402,87 @@ export default function PlanilhaOficial() {
     if (!outputParts.length) return;
     outputParts.forEach((p) => triggerDownloadBlob(p.blob, p.name));
   }
+
   function handleDownloadSingle() {
     if (outputCSV) {
-      triggerDownloadBlob(new Blob([outputCSV], { type: "text/csv;charset=utf-8" }), fileName || "clientes_processados.csv");
+      triggerDownloadBlob(
+        new Blob([outputCSV], { type: "text/csv;charset=utf-8" }),
+        fileName || "clientes_processados.csv"
+      );
     }
   }
+
   function handleDownloadDeleted() {
     if (!deletedParts.length) return;
     deletedParts.forEach((p) => triggerDownloadBlob(p.blob, p.name));
+  }
+
+  function openSaveModal(action) {
+    if (!hasResult) return;
+    setPendingDownloadAction(action);
+    setSaveError("");
+    setSaveModalOpen(true);
+  }
+
+  function closeSaveModal() {
+    if (isSaving) return;
+    setSaveModalOpen(false);
+    setPendingDownloadAction(null);
+  }
+
+  function handleChangeSaveField(field, value) {
+    setSaveForm((prev) => ({ ...prev, [field]: value }));
+  }
+  async function handleConfirmAndDownload(e) {
+    e.preventDefault();
+
+    const atendente = saveForm.atendente.trim();
+    const estabelecimento = saveForm.estabelecimento.trim();
+    const portal = saveForm.portal.trim();
+
+    // Campos obrigatórios
+    if (!atendente || !estabelecimento || !portal) {
+      setSaveError("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError("");
+
+    // Payload completo que o Apps Script espera
+    const payload = {
+      nomeAtendente: atendente,
+      nomeEstabelecimento: estabelecimento,
+      portalEstabelecimento: portal,
+      csvImportada: originalCSV || "",
+      csvCorrigida: fullOutputCSV || outputCSV || "",
+    };
+
+    try {
+      // Envia para o Apps Script sem esbarrar em CORS
+      await fetch(SIMPLE_DB_WEB_APP_URL, {
+        method: "POST",
+        mode: "no-cors",
+        body: JSON.stringify(payload),
+      });
+      // Em "no-cors" não dá para ler resposta, mas o pedido é enviado.
+    } catch (err) {
+      console.error("Erro ao enviar para o banco simples:", err);
+      // Mesmo se der erro aqui, não vamos travar o download
+    }
+
+    // Depois de tentar salvar, faz o download
+    if (pendingDownloadAction === "single") {
+      handleDownloadSingle();
+    } else if (pendingDownloadAction === "allParts") {
+      handleDownloadAllParts();
+    }
+
+    // Fecha modal e reseta apenas o formulário
+    setSaveModalOpen(false);
+    setPendingDownloadAction(null);
+    setSaveForm({ atendente: "", estabelecimento: "", portal: "" });
+    setIsSaving(false);
   }
 
   /* ========== Upload/Leitura de arquivo ========== */
@@ -387,7 +490,15 @@ export default function PlanilhaOficial() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const firstChunk = await file.slice(0, 8192).text();
+    // limpa prévia anterior
+    setPreviewRows([]);
+
+    // Lê o conteúdo completo para poder enviar como "csvImportada"
+    const originalText = await file.text();
+    setOriginalCSV(originalText);
+
+    // Usa apenas o início para heurística de delimitador
+    const firstChunk = originalText.slice(0, 8192);
     const detected = heuristicDelimiterDetect(firstChunk);
 
     const tryDelims = [",", ";", "\t", "|"].sort((a, b) =>
@@ -567,16 +678,28 @@ export default function PlanilhaOficial() {
           const confPhone = headerMap?.confidence?.telefone ?? 0;
           if (confPhone < LOW_CONF_THRESHOLD) {
             lowConfidence = true;
-            lowReasons.push(`Baixa confiança na detecção de Telefone (${(confPhone*100).toFixed(0)}%).`);
+            lowReasons.push(
+              `Baixa confiança na detecção de Telefone (${(confPhone * 100).toFixed(
+                0
+              )}%).`
+            );
           }
-          if ((headerMap?.telefone ?? -1) === -1 && (headerMap?.whatsapp ?? -1) === -1) {
+          if (
+            (headerMap?.telefone ?? -1) === -1 &&
+            (headerMap?.whatsapp ?? -1) === -1
+          ) {
             lowConfidence = true;
             lowReasons.push("Não foi possível definir a coluna de Telefone/WhatsApp.");
           }
         } else {
-          if ((headerMap?.telefone ?? -1) === -1 && (headerMap?.whatsapp ?? -1) === -1) {
+          if (
+            (headerMap?.telefone ?? -1) === -1 &&
+            (headerMap?.whatsapp ?? -1) === -1
+          ) {
             lowConfidence = true;
-            lowReasons.push("Cabeçalho encontrado, mas Telefone/WhatsApp não foi mapeado.");
+            lowReasons.push(
+              "Cabeçalho encontrado, mas Telefone/WhatsApp não foi mapeado."
+            );
           }
         }
 
@@ -601,8 +724,8 @@ export default function PlanilhaOficial() {
         invalid_both: 0,
         no_valid_number: 0,
         invalid_format: 0,
-        invalid_email: 0,   // info
-        invalid_points: 0,  // info
+        invalid_email: 0, // info
+        invalid_points: 0, // info
         used_whatsapp_fallback: 0,
       };
 
@@ -633,9 +756,9 @@ export default function PlanilhaOficial() {
         let reason = null;
 
         const telHas = Boolean(softTrim(telefoneRaw));
-        const waHas  = Boolean(softTrim(whatsappRaw));
-        const telOk  = telHas && isValidBrazilianMobile(telefoneRaw);
-        const waOk   = waHas && isValidBrazilianMobile(whatsappRaw);
+        const waHas = Boolean(softTrim(whatsappRaw));
+        const telOk = telHas && isValidBrazilianMobile(telefoneRaw);
+        const waOk = waHas && isValidBrazilianMobile(whatsappRaw);
 
         if (telOk) {
           finalPhone = formatBrazilianNumber(telefoneRaw);
@@ -698,8 +821,9 @@ export default function PlanilhaOficial() {
 
         // Debug (primeiras 10)
         if (sample.length < 10) {
-          const pontosShow = pontosOut === "" && pontosRaw ? "(apagado)" : pontosOut;
-          const emailShow  = emailOut === "" && emailRaw ? "(apagado)" : emailOut;
+          const pontosShow =
+            pontosOut === "" && pontosRaw ? "(apagado)" : pontosOut;
+          const emailShow = emailOut === "" && emailRaw ? "(apagado)" : emailOut;
 
           sample.push({
             rowNum,
@@ -725,22 +849,31 @@ export default function PlanilhaOficial() {
       // Debug amostra
       setDebug((prev) => ({ ...prev, sampleExtract: sample }));
 
-      // Saída válida (chunk de 5000)
+      // Atualiza pré-visualização (primeiras 3 linhas da planilha corrigida)
+      setPreviewRows(processadas.slice(0, 3));
+
+      // Monta CSV completo de saída (corrigido) para enviar ao Apps Script
+      const fullCsvOut = buildOutputCSV(processadas);
+      setFullOutputCSV(fullCsvOut);
+
+      // Saída válida (chunk de 5000) – para DOWNLOAD
       const CHUNK = 5000;
       if (processadas.length > CHUNK) {
         const slices = splitArray(processadas, CHUNK);
         const parts = slices.map((slice, idx) => {
           const csvStr = buildOutputCSV(slice);
           return {
-            name: `${(fileName || "clientes_processados").replace(/\.csv$/i, "")}_parte_${idx + 1}.csv`,
+            name: `${(fileName || "clientes_processados").replace(
+              /\.csv$/i,
+              ""
+            )}_parte_${idx + 1}.csv`,
             blob: new Blob([csvStr], { type: "text/csv;charset=utf-8" }),
           };
         });
         setOutputParts(parts);
         setOutputCSV("");
       } else {
-        const csvOut = buildOutputCSV(processadas);
-        setOutputCSV(csvOut);
+        setOutputCSV(fullCsvOut);
         setOutputParts([]);
       }
 
@@ -749,12 +882,18 @@ export default function PlanilhaOficial() {
         const delSlices = splitArray(deletedRowsData, CHUNK);
         const delParts = delSlices.map((slice, idx) => {
           const csv = Papa.unparse(slice, { delimiter: ";" });
-          const base = (fileName || "clientes_processados").replace(/\.csv$/i, "");
+          const base = (fileName || "clientes_processados").replace(
+            /\.csv$/i,
+            ""
+          );
           const name =
             delSlices.length > 1
               ? `${base}_deletados_parte_${idx + 1}.csv`
               : `${base}_deletados.csv`;
-          return { name, blob: new Blob([csv], { type: "text/csv;charset=utf-8" }) };
+          return {
+            name,
+            blob: new Blob([csv], { type: "text/csv;charset=utf-8" }),
+          };
         });
         setDeletedParts(delParts);
       } else {
@@ -792,9 +931,150 @@ export default function PlanilhaOficial() {
   }
 
   const hasDeleted = report.linhasDeletadas.length > 0;
-
   return (
     <section className={sectionCard}>
+      {/* Modal para salvar no banco simples antes de baixar */}
+      {saveModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+          onClick={closeSaveModal}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 border border-purple-300/60 dark:border-purple-500/40 rounded-3xl shadow-2xl max-w-xl w-full mx-4 p-6 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={closeSaveModal}
+              className="absolute right-4 top-4 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+              disabled={isSaving}
+            >
+              ✕
+            </button>
+
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+              Salvar informações antes de baixar a planilha
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Preencha os dados abaixo. Eles serão salvos automaticamente no banco simples
+              (Google Sheets/Drive) e, em seguida, a planilha será baixada.
+            </p>
+
+            <form onSubmit={handleConfirmAndDownload} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  Nome do atendente *
+                </label>
+                <input
+                  type="text"
+                  value={saveForm.atendente}
+                  onChange={(e) => handleChangeSaveField("atendente", e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  Nome do estabelecimento *
+                </label>
+                <input
+                  type="text"
+                  value={saveForm.estabelecimento}
+                  onChange={(e) =>
+                    handleChangeSaveField("estabelecimento", e.target.value)
+                  }
+                  className="w-full rounded-xl border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  Portal do estabelecimento *
+                </label>
+                <input
+                  type="text"
+                  value={saveForm.portal}
+                  onChange={(e) => handleChangeSaveField("portal", e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              {saveError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>
+              )}
+
+              {/* Prévia: 3 primeiras linhas da planilha corrigida */}
+              <div className="mt-4 border border-purple-200 dark:border-purple-500/40 rounded-xl bg-purple-50/60 dark:bg-purple-900/20 p-3">
+                <div className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-2">
+                  Prévia da planilha corrigida (3 primeiras linhas)
+                </div>
+                {previewRows.length > 0 ? (
+                  <div className="overflow-x-auto max-h-40">
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="text-gray-700 dark:text-gray-100">
+                          <th className="px-2 py-1">Nome</th>
+                          <th className="px-2 py-1">Telefone</th>
+                          <th className="px-2 py-1">Email</th>
+                          <th className="px-2 py-1">Pontos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows.map((r, idx) => (
+                          <tr
+                            key={idx}
+                            className="border-t border-purple-100/60 dark:border-purple-700/40"
+                          >
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
+                              {r.nome}
+                            </td>
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
+                              {r.telefone}
+                            </td>
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
+                              {r.email}
+                            </td>
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
+                              {r.pontos}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-purple-900/80 dark:text-purple-100/80">
+                    Importe e processe uma planilha para visualizar a prévia aqui.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-violet-600 text-white font-medium text-sm hover:from-purple-500 hover:to-violet-500 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 shadow-lg"
+                >
+                  {isSaving
+                    ? "Salvando..."
+                    : pendingDownloadAction === "allParts"
+                    ? "Salvar e baixar todas as partes"
+                    : "Salvar e baixar planilha"}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeSaveModal}
+                  disabled={isSaving}
+                  className="px-6 py-3 rounded-xl border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-slate-800 text-sm hover:bg-white dark:hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-6 mb-10">
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-gradient-to-br from-purple-500 via-violet-600 to-purple-700 shadow-lg shadow-purple-500/30 border border-purple-400/30">
@@ -804,9 +1084,10 @@ export default function PlanilhaOficial() {
           <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
             Tratador de CSV — Nome, Telefone, Email e Pontos (com Debug)
           </h2>
-          <p className="text-gray-600 dark:text-gray-300 text-lg mt-2"> 
-            Mapeamento automático robusto, <strong>um único telefone</strong> e exportação no layout oficial.
-            </p>
+          <p className="text-gray-600 dark:text-gray-300 text-lg mt-2">
+            Mapeamento automático robusto, <strong>um único telefone</strong> e exportação no
+            layout oficial.
+          </p>
         </div>
       </div>
 
@@ -818,8 +1099,9 @@ export default function PlanilhaOficial() {
               📁 Seleção de Arquivo
             </h3>
             <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
-              Pode enviar CSV em qualquer ordem (com/sem cabeçalho). Ative o <strong>Debug</strong> se algo parecer estranho
-              ou abra o <strong>Mapeamento Manual</strong> para ajustar colunas.
+              Pode enviar CSV em qualquer ordem (com/sem cabeçalho). Ative o <strong>Debug</strong>{" "}
+              se algo parecer estranho ou abra o <strong>Mapeamento Manual</strong> para ajustar
+              colunas.
             </p>
           </div>
 
@@ -851,7 +1133,13 @@ export default function PlanilhaOficial() {
               <button
                 onClick={() =>
                   openMapPanel(
-                    debug.headerMap || debug.guessedMap || { nome:-1, telefone:-1, whatsapp:-1, email:-1, pontos:-1 },
+                    debug.headerMap || debug.guessedMap || {
+                      nome: -1,
+                      telefone: -1,
+                      whatsapp: -1,
+                      email: -1,
+                      pontos: -1,
+                    },
                     debug.headerDetected,
                     "Mapeamento manual aberto pelo usuário."
                   )
@@ -868,7 +1156,8 @@ export default function PlanilhaOficial() {
 
               {debug.lowConfidence && (
                 <span className="text-amber-800 dark:text-amber-300 text-sm px-2 py-1 rounded bg-amber-100/80 dark:bg-amber-900/30 border border-amber-300/50">
-                  Atenção: {debug.lowConfidenceReason || "Baixa confiança na detecção automática."}
+                  Atenção:{" "}
+                  {debug.lowConfidenceReason || "Baixa confiança na detecção automática."}
                 </span>
               )}
             </div>
@@ -876,13 +1165,17 @@ export default function PlanilhaOficial() {
         </div>
       </div>
 
-      {/* Painel de Mapeamento Manual (explica fallback) */}
+      {/* Painel de Mapeamento Manual */}
       {mapUI.open && (
         <div className="mb-10 rounded-2xl border border-blue-300/60 dark:border-blue-500/40 bg-blue-50/70 dark:bg-blue-900/20 p-6">
-          <h3 className="text-lg font-bold text-blue-900 dark:text-blue-200 mb-2">Mapeamento manual de colunas</h3>
+          <h3 className="text-lg font-bold text-blue-900 dark:text-blue-200 mb-2">
+            Mapeamento manual de colunas
+          </h3>
           <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mb-4">
-            <strong>O que é “fallback do WhatsApp”?</strong> Se o campo <em>Telefone</em> estiver vazio ou inválido, o sistema tenta usar o número da coluna mapeada como <em>WhatsApp</em>.
-            Se o WhatsApp for válido, ele assume como telefone de saída; se também for inválido, a linha é deletada por ausência de número válido.
+            <strong>O que é “fallback do WhatsApp”?</strong> Se o campo{" "}
+            <em>Telefone</em> estiver vazio ou inválido, o sistema tenta usar o número da coluna
+            mapeada como <em>WhatsApp</em>. Se o WhatsApp for válido, ele assume como telefone de
+            saída; se também for inválido, a linha é deletada por ausência de número válido.
           </p>
 
           <div className="flex items-center gap-3 mb-4">
@@ -890,9 +1183,14 @@ export default function PlanilhaOficial() {
               id="hasHeader"
               type="checkbox"
               checked={mapUI.hasHeader}
-              onChange={(e) => setMapUI((p) => ({ ...p, hasHeader: e.target.checked }))}
+              onChange={(e) =>
+                setMapUI((p) => ({ ...p, hasHeader: e.target.checked }))
+              }
             />
-            <label htmlFor="hasHeader" className="text-sm text-blue-900 dark:text-blue-100">
+            <label
+              htmlFor="hasHeader"
+              className="text-sm text-blue-900 dark:text-blue-100"
+            >
               Minha planilha possui <strong>cabeçalho na primeira linha</strong>
             </label>
           </div>
@@ -906,7 +1204,9 @@ export default function PlanilhaOficial() {
               { key: "pontos", label: "Pontos (opcional)" },
             ].map((f) => (
               <div key={f.key} className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-blue-900 dark:text-blue-100">{f.label}</label>
+                <label className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                  {f.label}
+                </label>
                 <select
                   value={mapUI.selected[f.key]}
                   onChange={(e) =>
@@ -953,31 +1253,49 @@ export default function PlanilhaOficial() {
       {/* Painel de Debug */}
       {debugOpen && (
         <div className="mb-10 rounded-2xl border border-amber-300/60 dark:border-amber-400/40 bg-amber-50/70 dark:bg-amber-900/20 p-6">
-          <h3 className="text-lg font-bold text-amber-800 dark:text-amber-200 mb-4">Painel de Debug</h3>
+          <h3 className="text-lg font-bold text-amber-800 dark:text-amber-200 mb-4">
+            Painel de Debug
+          </h3>
           <div className="grid md:grid-cols-2 gap-4 text-sm text-amber-900 dark:text-amber-100">
             <div className="p-3 rounded bg-white/70 dark:bg-black/20 border border-amber-200/60 dark:border-amber-500/30">
-              <div><strong>Delimitador escolhido:</strong> <code>{debug.chosenDelimiter || "(desconhecido)"}</code></div>
+              <div>
+                <strong>Delimitador escolhido:</strong>{" "}
+                <code>{debug.chosenDelimiter || "(desconhecido)"}</code>
+              </div>
               <div className="mt-2">
                 <strong>Tentativas:</strong>
                 <ul className="list-disc ml-5 mt-1">
                   {debug.triedDelims.map((t, i) => (
-                    <li key={i}>`{t.delimiter}` → {t.rows} linhas / {t.cols} colunas</li>
+                    <li key={i}>
+                      `{t.delimiter}` → {t.rows} linhas / {t.cols} colunas
+                    </li>
                   ))}
                 </ul>
               </div>
             </div>
             <div className="p-3 rounded bg-white/70 dark:bg-black/20 border border-amber-200/60 dark:border-amber-500/30">
-              <div><strong>Cabeçalho detectado?</strong> {debug.headerDetected ? "Sim" : "Não"}</div>
+              <div>
+                <strong>Cabeçalho detectado?</strong>{" "}
+                {debug.headerDetected ? "Sim" : "Não"}
+              </div>
               {debug.headerDetected && (
                 <>
-                  <div className="mt-2"><strong>Header (linha 1):</strong></div>
-                  <pre className="text-xs whitespace-pre-wrap mt-1">{JSON.stringify(debug.headerRow, null, 2)}</pre>
+                  <div className="mt-2">
+                    <strong>Header (linha 1):</strong>
+                  </div>
+                  <pre className="text-xs whitespace-pre-wrap mt-1">
+                    {JSON.stringify(debug.headerRow, null, 2)}
+                  </pre>
                 </>
               )}
             </div>
             <div className="p-3 rounded bg-white/70 dark:bg-black/20 border border-amber-200/60 dark:border-amber-500/30">
-              <div><strong>Mapeamento por header/heurística:</strong></div>
-              <pre className="text-xs whitespace-pre-wrap mt-1">{JSON.stringify(debug.headerMap, null, 2)}</pre>
+              <div>
+                <strong>Mapeamento por header/heurística:</strong>
+              </div>
+              <pre className="text-xs whitespace-pre-wrap mt-1">
+                {JSON.stringify(debug.headerMap, null, 2)}
+              </pre>
               {debug.lowConfidence && (
                 <div className="mt-2 text-amber-900 dark:text-amber-200">
                   <strong>Aviso:</strong> {debug.lowConfidenceReason}
@@ -985,14 +1303,20 @@ export default function PlanilhaOficial() {
               )}
             </div>
             <div className="p-3 rounded bg-white/70 dark:bg-black/20 border border-amber-200/60 dark:border-amber-500/30">
-              <div><strong>Mapeamento (heurística bruta):</strong></div>
-              <pre className="text-xs whitespace-pre-wrap mt-1">{JSON.stringify(debug.guessedMap, null, 2)}</pre>
+              <div>
+                <strong>Mapeamento (heurística bruta):</strong>
+              </div>
+              <pre className="text-xs whitespace-pre-wrap mt-1">
+                {JSON.stringify(debug.guessedMap, null, 2)}
+              </pre>
             </div>
           </div>
 
           {debug.sampleExtract.length > 0 && (
             <div className="mt-6">
-              <div className="font-semibold mb-2">Amostra (até 10 primeiras linhas tratadas):</div>
+              <div className="font-semibold mb-2">
+                Amostra (até 10 primeiras linhas tratadas):
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
@@ -1017,19 +1341,28 @@ export default function PlanilhaOficial() {
                   </thead>
                   <tbody>
                     {debug.sampleExtract.map((r, idx) => (
-                      <tr key={`${r.rowNum}-${idx}`} className="border-t">
+                      <tr
+                        key={`${r.rowNum}-${idx}`}
+                        className="border-t border-amber-200/60 dark:border-amber-700/40"
+                      >
                         <td className="p-2">{r.rowNum}</td>
                         <td className="p-2">{r.nome}</td>
                         <td className="p-2">{r.telefone}</td>
                         <td className="p-2">{r.whatsapp}</td>
                         <td className="p-2">{r.telDigits}</td>
                         <td className="p-2">{r.waDigits}</td>
-                        <td className="p-2">{r.telValid ? "✔️" : r.telValid === false ? "❌" : ""}</td>
-                        <td className="p-2">{r.waValid ? "✔️" : r.waValid === false ? "❌" : ""}</td>
+                        <td className="p-2">
+                          {r.telValid ? "✔️" : r.telValid === false ? "❌" : ""}
+                        </td>
+                        <td className="p-2">
+                          {r.waValid ? "✔️" : r.waValid === false ? "❌" : ""}
+                        </td>
                         <td className="p-2">{r.chosen}</td>
                         <td className="p-2">{r.chosenSource || ""}</td>
                         <td className="p-2">{r.email}</td>
-                        <td className="p-2">{r.emailValid ? "✔️" : r.emailValid === false ? "❌" : ""}</td>
+                        <td className="p-2">
+                          {r.emailValid ? "✔️" : r.emailValid === false ? "❌" : ""}
+                        </td>
                         <td className="p-2">{r.emailOut}</td>
                         <td className="p-2">{r.pontosRaw}</td>
                         <td className="p-2">{r.pontosOut}</td>
@@ -1040,7 +1373,8 @@ export default function PlanilhaOficial() {
                 </table>
               </div>
               <p className="text-[11px] opacity-80 mt-2">
-                Dica: Email inválido e Pontos com símbolos são apagados/sanitizados sem deletar a linha.
+                Dica: Email inválido e Pontos com símbolos são apagados/sanitizados sem deletar a
+                linha.
               </p>
             </div>
           )}
@@ -1062,7 +1396,7 @@ export default function PlanilhaOficial() {
               <Stat label="Válidas" value={report.totalValidas} positive />
             </div>
 
-            {/* 📋 Registros Deletados — motivos/quantidades escondidos, botão de download SEMPRE VISÍVEL */}
+            {/* 📋 Registros Deletados */}
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-bold text-rose-600 dark:text-rose-400 text-lg">
                 📋 Registros Deletados
@@ -1075,12 +1409,11 @@ export default function PlanilhaOficial() {
               </button>
             </div>
 
-            {/* Botão fora do toggle (fica sempre visível quando há deletados) */}
             {deletedParts.length > 0 && (
               <div className="mb-4">
                 <button
                   onClick={handleDownloadDeleted}
-                  className="w-full px-6 py-4 bg-gradient-to-r from-red-100/80 dark:from-red-600/30 to-rose-100/80 dark:to-rose-600/30 hover:from-red-200/80 dark:hover:from-red-600/40 hover:to-rose-200/80 dark:hover:to-rose-600/40 text-red-700 dark:text-red-200 border border-red-300/60 dark:border-red-500/40 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2"
+                  className="w-full px-6 py-4 bg-gradient-to-r from-red-100/80 dark:from-red-600/30 to-rose-100/80 dark:to-rose-600/30 hover:from-red-200/80 dark:hover:from-red-600/40 hover:to-rose-200/80 dark:hover:to-rose-600/40 text-red-700 dark:text-red-200 border border-red-300/60 dark:border-red-500/40 rounded-xl font-medium transition-all duração-200 flex items-center justify-center gap-2"
                 >
                   <span>📥</span>
                   Baixar registros deletados (.csv)
@@ -1090,19 +1423,37 @@ export default function PlanilhaOficial() {
 
             {showDeletedSummary && (
               <>
-                {/* Resumo ampliado de motivos (somente contadores) */}
                 <div className="space-y-3 mb-4">
-                  <Item label="Telefone inválido" value={report.deletadas.invalid_telefone} />
-                  <Item label="WhatsApp inválido" value={report.deletadas.invalid_whatsapp} />
-                  <Item label="Telefone e WhatsApp inválidos" value={report.deletadas.invalid_both} />
-                  <Item label="Sem número válido" value={report.deletadas.no_valid_number} />
-                  {/* Informativos (não deletam) */}
-                  <Item label="Emails inválidos (apagados do campo)" value={report.deletadas.invalid_email} />
-                  <Item label="Pontos inválidos (sanitizados)" value={report.deletadas.invalid_points} />
-                  <Item label="Usou fallback do WhatsApp (aproveitados)" value={report.deletadas.used_whatsapp_fallback} />
+                  <Item
+                    label="Telefone inválido"
+                    value={report.deletadas.invalid_telefone}
+                  />
+                  <Item
+                    label="WhatsApp inválido"
+                    value={report.deletadas.invalid_whatsapp}
+                  />
+                  <Item
+                    label="Telefone e WhatsApp inválidos"
+                    value={report.deletadas.invalid_both}
+                  />
+                  <Item
+                    label="Sem número válido"
+                    value={report.deletadas.no_valid_number}
+                  />
+                  <Item
+                    label="Emails inválidos (apagados do campo)"
+                    value={report.deletadas.invalid_email}
+                  />
+                  <Item
+                    label="Pontos inválidos (sanitizados)"
+                    value={report.deletadas.invalid_points}
+                  />
+                  <Item
+                    label="Usou fallback do WhatsApp (aproveitados)"
+                    value={report.deletadas.used_whatsapp_fallback}
+                  />
                 </div>
 
-                {/* Opcional: mostrar linhas removidas (apenas lista simples) */}
                 {hasDeleted && (
                   <details className="mt-2">
                     <summary className="cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
@@ -1141,14 +1492,17 @@ export default function PlanilhaOficial() {
             {outputParts.length > 0 ? (
               <>
                 <button
-                  onClick={handleDownloadAllParts}
+                  onClick={() => openSaveModal("allParts")}
                   className="w-full rounded-xl px-8 py-6 font-bold text-lg transition-all duration-300 bg-gradient-to-r from-purple-600 via-violet-600 to-purple-600 text-white hover:from-purple-500 hover:via-violet-500 hover:to-purple-500 shadow-[0_8px_32px_rgba(139,92,246,0.4)] hover:shadow-[0_12px_48px_rgba(139,92,246,0.6)] transform hover:scale-[1.02]"
+                  disabled={!hasResult}
                 >
-                  📦 Baixar TODAS as partes ({outputParts.length})
+                  📦 Salvar dados e baixar TODAS as partes ({outputParts.length})
                 </button>
 
                 <div className="text-sm text-blue-700 dark:text-blue-300 p-4 bg-gradient-to-r from-blue-100/80 dark:from-blue-900/30 to-purple-100/80 dark:to-purple-900/30 border border-blue-300/60 dark:border-blue-600/30 rounded-xl">
-                  Foram geradas <span className="font-bold">{outputParts.length}</span> partes (máx. 5.000 registros por parte).
+                  Foram geradas{" "}
+                  <span className="font-bold">{outputParts.length}</span> partes (máx. 5.000
+                  registros por parte).
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -1158,22 +1512,22 @@ export default function PlanilhaOficial() {
                       onClick={() => triggerDownloadBlob(p.blob, p.name)}
                       className="px-3 py-2 bg-gradient-to-r from-gray-200/80 dark:from-slate-700/60 to-purple-200/80 dark:to-slate-600/60 hover:from-gray-300/80 dark:hover:from-slate-600/80 hover:to-purple-300/80 dark:hover:to-slate-500/80 text-gray-700 dark:text-gray-200 rounded-lg font-medium transition-all duration-200 border border-gray-300/50 dark:border-slate-500/30"
                     >
-                      Baixar parte {idx + 1}
+                      Baixar parte {idx + 1} (sem salvar)
                     </button>
                   ))}
                 </div>
               </>
             ) : (
               <button
-                onClick={handleDownloadSingle}
+                onClick={() => openSaveModal("single")}
                 disabled={!hasResult}
-                className={`w-full rounded-xl px-8 py-6 font-bold text-lg transition-all duration-300 ${
+                className={`w-full rounded-xl px-8 py-6 font-bold text-lg transition-all duração-300 ${
                   hasResult
                     ? "bg-gradient-to-r from-purple-600 via-violet-600 to-purple-600 text-white hover:from-purple-500 hover:via-violet-500 hover:to-purple-500 shadow-[0_8px_32px_rgba(139,92,246,0.4)] hover:shadow-[0_12px_48px_rgba(139,92,246,0.6)] transform hover:scale-[1.02]"
                     : "bg-gray-300/60 dark:bg-slate-600/40 text-gray-500 dark:text-slate-400 cursor-not-allowed"
                 }`}
               >
-                📄 Baixar CSV processado
+                📄 Salvar dados e baixar CSV processado
               </button>
             )}
 
@@ -1189,7 +1543,7 @@ export default function PlanilhaOficial() {
               </p>
               <p className="text-xs leading-relaxed mt-2">
                 Cabeçalhos: Nome, Telefone, Email, Sexo, Data de nascimento, Data de cadastro,
-                Pontos do fidelidade, Rua, Número, Complemento, Bairro, CEP, Cidade, Estado
+                Pontos do fidelidade, Rua, Número, Complemento, Bairro, CEP, Cidade, Estado.
               </p>
             </div>
           </div>
@@ -1210,14 +1564,23 @@ function Item({ label, value }) {
     </div>
   );
 }
+
 function Stat({ label, value, positive }) {
   return (
-    <div className={`text-center p-6 rounded-xl border ${
-      positive
-        ? "bg-gradient-to-br from-emerald-100/80 dark:from-emerald-600/20 to-green-100/80 dark:to-green-600/20 border-emerald-300/50 dark:border-emerald-500/30"
-        : "bg-gradient-to-br from-purple-100/80 dark:from-purple-600/20 to-violet-100/80 dark:to-violet-600/20 border-purple-300/50 dark:border-purple-500/30"
-    }`}>
-      <div className={`text-3xl font-bold ${positive ? "text-emerald-700 dark:text-emerald-300" : "text-purple-700 dark:text-purple-300"} mb-2`}>
+    <div
+      className={`text-center p-6 rounded-xl border ${
+        positive
+          ? "bg-gradient-to-br from-emerald-100/80 dark:from-emerald-600/20 to-green-100/80 dark:to-green-600/20 border-emerald-300/50 dark:border-emerald-500/30"
+          : "bg-gradient-to-br from-purple-100/80 dark:from-purple-600/20 to-violet-100/80 dark:to-violet-600/20 border-purple-300/50 dark:border-purple-500/30"
+      }`}
+    >
+      <div
+        className={`text-3xl font-bold ${
+          positive
+            ? "text-emerald-700 dark:text-emerald-300"
+            : "text-purple-700 dark:text-purple-300"
+        } mb-2`}
+      >
         {value}
       </div>
       <div className="text-sm text-gray-600 dark:text-gray-300 font-medium">
