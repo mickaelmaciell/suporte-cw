@@ -83,11 +83,32 @@ function safeLocalStorageSet(key, value) {
 
 const STORAGE_KEY = "cw_financeiro_history_v1";
 
-const periodMultipliers = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
-const periodLabels = { mensal: "/mês", trimestral: "/tri", semestral: "/sem", anual: "/ano" };
-const periodHuman = { mensal: "Mensal", trimestral: "Trimestral", semestral: "Semestral", anual: "Anual" };
+const periodMultipliers = {
+  mensal: 1,
+  trimestral: 3,
+  semestral: 6,
+  anual: 12,
+};
 
-const planNames = { delivery: "Plano Delivery", mesas: "Plano Mesas/Comandas", premium: "Plano Premium" };
+const periodLabels = {
+  mensal: "/mês",
+  trimestral: "/tri",
+  semestral: "/sem",
+  anual: "/ano",
+};
+
+const periodHuman = {
+  mensal: "Mensal",
+  trimestral: "Trimestral",
+  semestral: "Semestral",
+  anual: "Anual",
+};
+
+const planNames = {
+  delivery: "Plano Delivery",
+  mesas: "Plano Mesas/Comandas",
+  premium: "Plano Premium",
+};
 
 function getPeriodPrice(monthlyPrice, period) {
   const mult = periodMultipliers[period] ?? 1;
@@ -96,25 +117,15 @@ function getPeriodPrice(monthlyPrice, period) {
 
 /* =========================== UI ATOMS (COMPACT) =========================== */
 
-const cls = {
-  card: "rounded-2xl p-5 border backdrop-blur-xl bg-white/80 dark:bg-black/35 border-purple-300/40 dark:border-purple-500/25 shadow-[0_6px_22px_rgba(139,92,246,0.14)]",
-  iconBox:
-    "w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center shadow border border-purple-400/25",
-  input:
-    "w-full rounded-xl border px-3 py-2 text-sm outline-none transition-all bg-purple-50/40 dark:bg-slate-800/70 border-purple-200/70 dark:border-purple-500/20 text-gray-900 dark:text-white focus:border-[#A543FB] focus:ring-4 focus:ring-purple-200/35 dark:focus:ring-purple-900/35",
-  select:
-    "w-full rounded-xl border px-3 py-2 text-sm outline-none transition-all bg-purple-50/40 dark:bg-slate-800/70 border-purple-200/70 dark:border-purple-500/20 text-gray-900 dark:text-white focus:border-[#A543FB] focus:ring-4 focus:ring-purple-200/35 dark:focus:ring-purple-900/35",
-};
-
 function Pill({ active, children, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={[
-        "px-3 py-1.5 rounded-full text-xs font-extrabold transition-all border",
+        "px-3 py-1.5 rounded-full text-xs font-bold transition-all border",
         active
-          ? "bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white border-purple-400/30 shadow-[0_8px_20px_rgba(139,92,246,0.22)]"
+          ? "bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white border-purple-400/30 shadow-[0_10px_25px_rgba(139,92,246,0.18)]"
           : "bg-purple-50/80 dark:bg-slate-800/60 text-gray-700 dark:text-gray-200 border-purple-200/50 dark:border-purple-500/20 hover:border-purple-400/60",
       ].join(" ")}
     >
@@ -124,18 +135,18 @@ function Pill({ active, children, onClick }) {
 }
 
 function Label({ children }) {
-  return <div className="text-xs font-extrabold text-gray-700 dark:text-gray-200 mb-1.5">{children}</div>;
+  return <div className="text-xs font-bold text-gray-700 dark:text-gray-200 mb-2">{children}</div>;
 }
 
 function Card({ title, icon, children, rightEl }) {
   return (
-    <section className={cls.card}>
-      <div className="flex items-center justify-between gap-3 mb-4">
+    <section className="rounded-2xl p-6 border backdrop-blur-xl bg-white/80 dark:bg-black/35 border-purple-300/50 dark:border-purple-500/25 shadow-[0_8px_26px_rgba(139,92,246,0.14)]">
+      <div className="flex items-center justify-between gap-4 mb-5">
         <div className="flex items-center gap-3">
-          <div className={cls.iconBox}>
-            <span className="text-base">{icon}</span>
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center shadow border border-purple-400/30">
+            <span className="text-lg">{icon}</span>
           </div>
-          <h2 className="text-base font-black text-gray-900 dark:text-white">{title}</h2>
+          <h2 className="text-lg font-extrabold text-gray-900 dark:text-white">{title}</h2>
         </div>
         {rightEl}
       </div>
@@ -145,46 +156,71 @@ function Card({ title, icon, children, rightEl }) {
 }
 
 function InputBase(props) {
-  return <input {...props} className={[cls.input, props.className || ""].join(" ")} />;
+  return (
+    <input
+      {...props}
+      className={[
+        "w-full rounded-2xl border-2 px-3 py-2 text-sm outline-none transition-all",
+        "bg-purple-50/40 dark:bg-slate-800/70",
+        "border-purple-200/70 dark:border-purple-500/20",
+        "text-gray-900 dark:text-white",
+        "focus:border-[#A543FB] focus:ring-4 focus:ring-purple-200/30 dark:focus:ring-purple-900/35",
+        props.className || "",
+      ].join(" ")}
+    />
+  );
 }
 
 function SelectBase(props) {
-  return <select {...props} className={[cls.select, props.className || ""].join(" ")} />;
+  return (
+    <select
+      {...props}
+      className={[
+        "w-full rounded-2xl border-2 px-3 py-2 text-sm outline-none transition-all",
+        "bg-purple-50/40 dark:bg-slate-800/70",
+        "border-purple-200/70 dark:border-purple-500/20",
+        "text-gray-900 dark:text-white",
+        "focus:border-[#A543FB] focus:ring-4 focus:ring-purple-200/30 dark:focus:ring-purple-900/35",
+        props.className || "",
+      ].join(" ")}
+    />
+  );
 }
 
 function Badge({ variant = "info", children }) {
-  const clsB =
+  const cls =
     variant === "danger"
       ? "bg-rose-500 text-white"
       : variant === "warning"
-      ? "bg-amber-300 text-slate-900"
+      ? "bg-amber-400 text-slate-900"
       : variant === "success"
-      ? "bg-emerald-300 text-slate-900"
-      : "bg-cyan-300 text-slate-900";
-  return <div className={`px-2.5 py-1 rounded-full text-[11px] font-black ${clsB}`}>{children}</div>;
+      ? "bg-emerald-400 text-slate-900"
+      : "bg-cyan-400 text-slate-900";
+
+  return <div className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold ${cls}`}>{children}</div>;
 }
 
 function Modal({ open, title, children, onClose, footer }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3">
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
       <button type="button" onClick={onClose} className="absolute inset-0 bg-black/50" aria-label="Fechar modal" />
-      <div className="relative w-full max-w-xl rounded-2xl border border-purple-300/35 dark:border-purple-500/20 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-purple-200/60 dark:border-purple-500/20 bg-purple-50/60 dark:bg-slate-900/60">
+      <div className="relative w-full max-w-2xl rounded-2xl border border-purple-300/40 dark:border-purple-500/20 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-purple-200/60 dark:border-purple-500/20 bg-purple-50/60 dark:bg-slate-900/60">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-black text-gray-900 dark:text-white">{title}</h3>
+            <h3 className="text-base font-extrabold text-gray-900 dark:text-white">{title}</h3>
             <button
               type="button"
               onClick={onClose}
-              className="w-9 h-9 rounded-xl bg-white/70 dark:bg-slate-800/70 border border-purple-200/50 dark:border-purple-500/20 hover:scale-105 active:scale-95 transition"
+              className="w-9 h-9 rounded-2xl bg-white/70 dark:bg-slate-800/70 border border-purple-200/50 dark:border-purple-500/20 hover:scale-105 active:scale-95 transition"
               title="Fechar"
             >
               ✖️
             </button>
           </div>
         </div>
-        <div className="px-4 py-4">{children}</div>
-        {footer ? <div className="px-4 py-3 border-t border-purple-200/60 dark:border-purple-500/20">{footer}</div> : null}
+        <div className="px-5 py-5">{children}</div>
+        {footer ? <div className="px-5 py-4 border-t border-purple-200/60 dark:border-purple-500/20">{footer}</div> : null}
       </div>
     </div>
   );
@@ -192,18 +228,15 @@ function Modal({ open, title, children, onClose, footer }) {
 
 function Toast({ toast, onClose }) {
   if (!toast?.open) return null;
+
   const icon = toast.type === "success" ? "✅" : toast.type === "error" ? "⚠️" : toast.type === "info" ? "ℹ️" : "🔔";
+
   return (
     <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[2100]">
-      <div className="rounded-xl px-4 py-2.5 bg-slate-900 text-white shadow-2xl border border-white/10 flex items-center gap-3">
+      <div className="rounded-2xl px-4 py-2.5 bg-slate-900 text-white shadow-2xl border border-white/10 flex items-center gap-3">
         <span className="text-base">{icon}</span>
-        <span className="text-xs font-semibold">{toast.message}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-1 w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 transition"
-          title="Fechar"
-        >
+        <span className="text-sm font-medium">{toast.message}</span>
+        <button type="button" onClick={onClose} className="ml-2 w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 transition" title="Fechar">
           ✕
         </button>
       </div>
@@ -214,13 +247,14 @@ function Toast({ toast, onClose }) {
 /* =========================== MAIN COMPONENT =========================== */
 
 export default function Financeiro() {
+  // ✅ VALORES ATUALIZADOS (por mês) conforme seu print
   const modulesData = useMemo(
     () => [
-      { id: "fiscal", name: "Módulo Fiscal", monthlyPrice: 59.9 },
-      { id: "estoque", name: "Módulo de Estoque Avançado", monthlyPrice: 19.9 },
-      { id: "financeiro", name: "Módulo de Gestão Financeira", monthlyPrice: 49.9 },
-      { id: "entregas", name: "Módulo de Gestão de Entregas", monthlyPrice: 49.9 },
-      { id: "marketplaces", name: "Módulo de Integração com Marketplaces", monthlyPrice: 19.9 },
+      { id: "estoque", name: "Módulo de Estoque Avançado", monthlyPrice: 29.99 },
+      { id: "fiscal", name: "Módulo Fiscal", monthlyPrice: 69.99 },
+      { id: "financeiro", name: "Módulo de Gestão Financeira", monthlyPrice: 69.99 },
+      { id: "entregas", name: "Módulo de Gestão de Entregas", monthlyPrice: 54.99 },
+      { id: "marketplaces", name: "Módulo de Integração com Marketplaces", monthlyPrice: 29.99 },
     ],
     []
   );
@@ -287,7 +321,7 @@ export default function Financeiro() {
     safeLocalStorageSet(STORAGE_KEY, history);
   }, [history]);
 
-  // Keyboard shortcuts (Enter = calcular, Esc = limpar/fechar modal)
+  // Keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e) {
       const tag = (document.activeElement?.tagName || "").toUpperCase();
@@ -397,26 +431,36 @@ export default function Financeiro() {
 
       const currentModules = modulesData
         .filter((m) => currentModulesSel.has(m.id))
-        .map((m) => ({ ...m, periodPrice: getOverrideValue(currentOverrides, m, currentPlanPeriod) }));
+        .map((m) => ({
+          ...m,
+          periodPrice: getOverrideValue(currentOverrides, m, currentPlanPeriod),
+        }));
 
       const newModules = modulesData
         .filter((m) => newModulesSel.has(m.id))
-        .map((m) => ({ ...m, periodPrice: getOverrideValue(newOverrides, m, newPlanPeriod) }));
+        .map((m) => ({
+          ...m,
+          periodPrice: getOverrideValue(newOverrides, m, newPlanPeriod),
+        }));
 
-      const creditFromOldPlan = (currentValue / periodDays) * daysRemaining;
+      const dailyRateCurrent = currentValue / periodDays;
+      const creditFromOldPlan = dailyRateCurrent * daysRemaining;
 
       let creditFromOldModules = 0;
       currentModules.forEach((m) => {
-        creditFromOldModules += (m.periodPrice / periodDays) * daysRemaining;
+        const daily = m.periodPrice / periodDays;
+        creditFromOldModules += daily * daysRemaining;
       });
 
       const totalCredit = creditFromOldPlan + creditFromOldModules;
 
-      const chargeForNewPlan = (newValue / periodDays) * daysRemaining;
+      const dailyRateNew = newValue / periodDays;
+      const chargeForNewPlan = dailyRateNew * daysRemaining;
 
       let chargeForNewModules = 0;
       newModules.forEach((m) => {
-        chargeForNewModules += (m.periodPrice / periodDays) * daysRemaining;
+        const daily = m.periodPrice / periodDays;
+        chargeForNewModules += daily * daysRemaining;
       });
 
       const totalCharge = chargeForNewPlan + chargeForNewModules;
@@ -550,6 +594,7 @@ export default function Financeiro() {
 
   async function copyResult() {
     if (!result || result.type === "error") return showToast("Nenhum resultado para copiar.", "error");
+
     const text = generateResultText(result);
     try {
       await navigator.clipboard.writeText(text);
@@ -637,32 +682,32 @@ export default function Financeiro() {
     });
   }
 
-  /* =========================== UI =========================== */
+  /* =========================== UI RENDER =========================== */
 
   const Header = (
-    <div className="rounded-2xl overflow-hidden border border-purple-300/35 dark:border-purple-500/20 shadow-[0_6px_22px_rgba(139,92,246,0.14)]">
-      <div className="bg-gradient-to-br from-[#A543FB] to-[#7e22ce] px-5 py-5 text-white relative">
+    <div className="rounded-2xl overflow-hidden border border-purple-300/40 dark:border-purple-500/20 shadow-[0_8px_26px_rgba(139,92,246,0.14)]">
+      <div className="bg-gradient-to-br from-[#A543FB] to-[#7e22ce] px-6 py-6 text-white relative">
         <div className="absolute -top-28 -right-28 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
-        <div className="relative flex items-start justify-between gap-4 flex-wrap">
+        <div className="relative flex items-start justify-between gap-5 flex-wrap">
           <div>
-            <h1 className="text-lg md:text-xl font-black flex items-center gap-2">
-              <span className="text-lg">💰</span> Financeiro • Calculadora
+            <h1 className="text-xl md:text-2xl font-extrabold flex items-center gap-3">
+              <span className="text-xl">💰</span> Financeiro • Calculadora
             </h1>
-            <p className="text-white/85 text-xs mt-1.5">Cálculo proporcional de mudança de plano e adição de módulos.</p>
+            <p className="text-white/85 text-xs mt-2">Cálculo proporcional de mudança de plano e adição de módulos.</p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={calculate}
-              className="rounded-xl px-4 py-2 bg-white/15 hover:bg-white/25 border border-white/20 font-black text-xs transition active:scale-95"
+              className="rounded-2xl px-4 py-2.5 bg-white/15 hover:bg-white/25 border border-white/20 font-bold text-xs transition active:scale-95"
             >
               🧮 Calcular
             </button>
             <button
               type="button"
               onClick={clearForm}
-              className="rounded-xl px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/15 font-black text-xs transition active:scale-95"
+              className="rounded-2xl px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/15 font-bold text-xs transition active:scale-95"
             >
               🧽 Limpar
             </button>
@@ -676,10 +721,9 @@ export default function Financeiro() {
           <Pill active={scenario === "module"} onClick={() => setScenario("module")}>
             🧩 Adicionar Módulo
           </Pill>
-
-          <div className="ml-auto text-[11px] text-white/85 flex items-center gap-2">
-            <span className="px-2.5 py-1 rounded-full bg-black/15 border border-white/15">⏎ Enter</span>
-            <span className="px-2.5 py-1 rounded-full bg-black/15 border border-white/15">Esc</span>
+          <div className="ml-auto text-[11px] text-white/80 flex items-center gap-2">
+            <span className="px-2.5 py-1 rounded-full bg-black/15 border border-white/15">⏎ Enter = Calcular</span>
+            <span className="px-2.5 py-1 rounded-full bg-black/15 border border-white/15">Esc = Limpar/Fechar</span>
           </div>
         </div>
       </div>
@@ -698,35 +742,36 @@ export default function Financeiro() {
             <div
               key={m.id}
               className={[
-                "rounded-2xl border p-3 transition-all",
-                "bg-purple-50/50 dark:bg-slate-800/50",
+                "rounded-2xl border-2 p-3 transition-all",
+                "bg-purple-50/50 dark:bg-slate-800/45",
                 isChecked
-                  ? "border-[#A543FB]/55 shadow-[0_6px_18px_rgba(165,67,251,0.14)]"
+                  ? "border-[#A543FB]/60 shadow-[0_8px_20px_rgba(165,67,251,0.12)]"
                   : "border-purple-200/60 dark:border-purple-500/20 hover:border-purple-300/80",
               ].join(" ")}
             >
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <button type="button" onClick={() => toggleSet(setSelected, selected, m.id)} className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <button type="button" onClick={() => toggleSet(setSelected, selected, m.id)} className="flex items-center gap-3">
                   <span
                     className={[
-                      "w-5 h-5 rounded-lg border flex items-center justify-center",
+                      "w-5 h-5 rounded-lg border-2 flex items-center justify-center",
                       isChecked ? "bg-[#A543FB] border-[#A543FB]" : "border-purple-200 dark:border-purple-500/30",
                     ].join(" ")}
                     aria-hidden="true"
                   >
                     {isChecked ? <span className="text-white text-xs">✓</span> : null}
                   </span>
-                  <span className="font-black text-sm text-gray-900 dark:text-white">{m.name}</span>
+                  <span className="font-extrabold text-gray-900 dark:text-white text-sm">{m.name}</span>
                 </button>
 
-                <div className="text-xs font-black text-purple-700 dark:text-purple-300">
-                  {formatMoney(shown)} <span className="opacity-70">{periodLabels[period]}</span>
+                <div className="text-sm font-extrabold text-purple-700 dark:text-purple-300">
+                  {formatMoney(shown)}
+                  <span className="opacity-70 font-bold"> {periodLabels[period]}</span>
                 </div>
               </div>
 
               {isChecked && (
                 <div className="mt-3 pt-3 border-t border-purple-200/60 dark:border-purple-500/20">
-                  <Label>Valor personalizado (opcional)</Label>
+                  <Label>Valor do período personalizado (opcional)</Label>
                   <InputBase
                     type="number"
                     min="0"
@@ -735,8 +780,8 @@ export default function Financeiro() {
                     value={overrides[m.id] ?? ""}
                     onChange={(e) => setOverride(setOverrides, m.id, e.target.value)}
                   />
-                  <div className="text-[11px] text-gray-600 dark:text-gray-300 mt-1.5">
-                    Padrão: <span className="font-black">{formatMoney(def)}</span>
+                  <div className="text-[11px] text-gray-600 dark:text-gray-300 mt-2">
+                    Padrão do período: <span className="font-bold">{formatMoney(def)}</span>
                   </div>
                 </div>
               )}
@@ -748,39 +793,36 @@ export default function Financeiro() {
   }
 
   function ResultPanel() {
-    const shell =
-      "rounded-2xl p-5 border border-purple-300/35 dark:border-purple-500/20 bg-gradient-to-br from-slate-900 to-slate-950 text-white shadow-[0_8px_26px_rgba(0,0,0,0.32)]";
-
     if (!result) {
       return (
-        <div className={shell}>
+        <div className="rounded-2xl p-6 border border-purple-300/35 dark:border-purple-500/20 bg-gradient-to-br from-slate-900 to-slate-950 text-white shadow-[0_10px_30px_rgba(0,0,0,0.32)]">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-black flex items-center gap-2">🧾 Resultado</div>
+            <div className="text-base font-extrabold flex items-center gap-2">🧾 Resultado</div>
             <Badge variant="info">Aguardando</Badge>
           </div>
-          <div className="mt-5 opacity-80 text-xs">Configure e clique em <b>Calcular</b>.</div>
+          <div className="mt-6 opacity-80 text-sm">Configure e clique em <b>Calcular</b>.</div>
         </div>
       );
     }
 
     if (result.type === "error") {
       return (
-        <div className={shell}>
+        <div className="rounded-2xl p-6 border border-purple-300/35 dark:border-purple-500/20 bg-gradient-to-br from-slate-900 to-slate-950 text-white shadow-[0_10px_30px_rgba(0,0,0,0.32)]">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-black flex items-center gap-2">🧾 Resultado</div>
+            <div className="text-base font-extrabold flex items-center gap-2">🧾 Resultado</div>
             <Badge variant="danger">Erro</Badge>
           </div>
-          <div className="mt-4 text-xs opacity-90">⚠️ {result.message}</div>
+          <div className="mt-4 text-sm opacity-90">⚠️ {result.message}</div>
         </div>
       );
     }
 
     const actions = (
-      <div className="mt-4 flex gap-2 flex-wrap">
+      <div className="mt-5 flex gap-2 flex-wrap">
         <button
           type="button"
           onClick={copyResult}
-          className="flex-1 min-w-[140px] rounded-xl px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/15 text-white font-black text-xs transition active:scale-95"
+          className="flex-1 min-w-[150px] rounded-2xl px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/15 text-white font-bold text-xs transition active:scale-95"
         >
           📋 Copiar
         </button>
@@ -788,8 +830,8 @@ export default function Financeiro() {
           type="button"
           onClick={() => setShowDailyRate((v) => !v)}
           className={[
-            "flex-1 min-w-[140px] rounded-xl px-4 py-2.5 border font-black text-xs transition active:scale-95",
-            showDailyRate ? "bg-cyan-300 text-slate-900 border-cyan-200" : "bg-white/10 hover:bg-white/20 border-white/15 text-white",
+            "flex-1 min-w-[150px] rounded-2xl px-4 py-2.5 border text-white font-bold text-xs transition active:scale-95",
+            showDailyRate ? "bg-cyan-400 text-slate-900 border-cyan-200" : "bg-white/10 hover:bg-white/20 border-white/15",
           ].join(" ")}
         >
           📈 Taxa diária
@@ -803,39 +845,44 @@ export default function Financeiro() {
       const amountValue = formatMoney(Math.abs(result.finalAmount));
 
       return (
-        <div className={shell}>
+        <div className="rounded-2xl p-6 border border-purple-300/35 dark:border-purple-500/20 bg-gradient-to-br from-slate-900 to-slate-950 text-white shadow-[0_10px_30px_rgba(0,0,0,0.32)]">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-black flex items-center gap-2">🧾 Resultado</div>
+            <div className="text-base font-extrabold flex items-center gap-2">🧾 Resultado</div>
             {badge}
           </div>
 
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            {[
-              ["Período", `${result.periodDays}d`],
-              ["Usados", `${result.daysUsed}d`],
-              ["Restantes", `${result.daysRemaining}d`],
-            ].map(([a, b]) => (
-              <div key={a} className="rounded-xl bg-white/8 border border-white/10 p-3 text-center">
-                <div className="text-[11px] opacity-70">{a}</div>
-                <div className="text-sm font-black">{b}</div>
-              </div>
-            ))}
+          <div className="mt-5 grid grid-cols-3 gap-2">
+            <div className="rounded-2xl bg-white/8 border border-white/10 p-3 text-center">
+              <div className="text-[11px] opacity-70">Total</div>
+              <div className="text-base font-extrabold">{result.periodDays}d</div>
+            </div>
+            <div className="rounded-2xl bg-white/8 border border-white/10 p-3 text-center">
+              <div className="text-[11px] opacity-70">Usados</div>
+              <div className="text-base font-extrabold">{result.daysUsed}d</div>
+            </div>
+            <div className="rounded-2xl bg-white/8 border border-white/10 p-3 text-center">
+              <div className="text-[11px] opacity-70">Restantes</div>
+              <div className="text-base font-extrabold">{result.daysRemaining}d</div>
+            </div>
           </div>
 
-          <div className="mt-4 space-y-3">
-            <div className="rounded-xl border border-white/10 overflow-hidden">
-              <div className="px-4 py-2 bg-white/10 text-xs font-black">Plano atual</div>
-              <div className="px-4 py-3 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-bold">{periodHuman[result.currentPlanPeriod]} • {result.currentPlan}</div>
-                  <div className="text-xs font-black">
+          <div className="mt-5 space-y-3">
+            <div className="rounded-2xl border border-white/10 overflow-hidden">
+              <div className="px-4 py-2.5 bg-white/10 font-extrabold text-sm">Plano atual</div>
+              <div className="px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-bold text-sm">
+                    {periodHuman[result.currentPlanPeriod]} • {result.currentPlan}
+                  </div>
+                  <div className="font-extrabold text-sm">
                     {formatMoney(result.currentValue)} <span className="opacity-70">{periodLabels[result.currentPlanPeriod]}</span>
                   </div>
                 </div>
+
                 {result.currentModules?.length ? (
                   <div className="pt-2 mt-2 border-t border-white/10 space-y-1.5">
                     {result.currentModules.map((m) => (
-                      <div key={m.id} className="flex items-center justify-between text-xs opacity-90">
+                      <div key={m.id} className="flex items-center justify-between text-[13px] opacity-90">
                         <div>• {m.name}</div>
                         <div className="font-bold">
                           {formatMoney(m.periodPrice)} <span className="opacity-70">{periodLabels[result.currentPlanPeriod]}</span>
@@ -847,21 +894,24 @@ export default function Financeiro() {
               </div>
             </div>
 
-            <div className="text-center opacity-60 text-xs">⬇️</div>
+            <div className="text-center opacity-70 text-sm">⬇️</div>
 
-            <div className="rounded-xl border border-white/10 overflow-hidden">
-              <div className="px-4 py-2 bg-white/10 text-xs font-black">Novo plano</div>
-              <div className="px-4 py-3 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-bold">{periodHuman[result.newPlanPeriod]} • {result.newPlan}</div>
-                  <div className="text-xs font-black">
+            <div className="rounded-2xl border border-white/10 overflow-hidden">
+              <div className="px-4 py-2.5 bg-white/10 font-extrabold text-sm">Novo plano</div>
+              <div className="px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-bold text-sm">
+                    {periodHuman[result.newPlanPeriod]} • {result.newPlan}
+                  </div>
+                  <div className="font-extrabold text-sm">
                     {formatMoney(result.newValue)} <span className="opacity-70">{periodLabels[result.newPlanPeriod]}</span>
                   </div>
                 </div>
+
                 {result.newModules?.length ? (
                   <div className="pt-2 mt-2 border-t border-white/10 space-y-1.5">
                     {result.newModules.map((m) => (
-                      <div key={m.id} className="flex items-center justify-between text-xs opacity-90">
+                      <div key={m.id} className="flex items-center justify-between text-[13px] opacity-90">
                         <div>• {m.name}</div>
                         <div className="font-bold">
                           {formatMoney(m.periodPrice)} <span className="opacity-70">{periodLabels[result.newPlanPeriod]}</span>
@@ -874,54 +924,68 @@ export default function Financeiro() {
             </div>
           </div>
 
-          <div className="mt-4 rounded-2xl p-4 bg-white/8 border border-white/10">
-            <Row label={`Crédito plano anterior (${result.daysRemaining} dias)`} value={`- ${formatMoney(result.creditFromOldPlan)}`} color="text-emerald-300" />
+          <div className="mt-5 rounded-2xl p-4 bg-white/8 border border-white/10">
+            <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+              <div className="opacity-80">Crédito plano anterior</div>
+              <div className="font-extrabold text-emerald-300">- {formatMoney(result.creditFromOldPlan)}</div>
+            </div>
+
             {result.creditFromOldModules > 0 ? (
-              <Row label="Crédito módulos" value={`- ${formatMoney(result.creditFromOldModules)}`} color="text-emerald-300" />
+              <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+                <div className="opacity-80">Crédito módulos</div>
+                <div className="font-extrabold text-emerald-300">- {formatMoney(result.creditFromOldModules)}</div>
+              </div>
             ) : null}
-            <Row label={`Cobrança novo plano (${result.daysRemaining} dias)`} value={`+ ${formatMoney(result.chargeForNewPlan)}`} color="text-amber-300" />
+
+            <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+              <div className="opacity-80">Cobrança novo plano</div>
+              <div className="font-extrabold text-amber-300">+ {formatMoney(result.chargeForNewPlan)}</div>
+            </div>
+
             {result.chargeForNewModules > 0 ? (
-              <Row label="Cobrança módulos" value={`+ ${formatMoney(result.chargeForNewModules)}`} color="text-amber-300" />
+              <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+                <div className="opacity-80">Cobrança módulos</div>
+                <div className="font-extrabold text-amber-300">+ {formatMoney(result.chargeForNewModules)}</div>
+              </div>
             ) : null}
 
             <div className="mt-3 pt-3 border-t border-white/15 flex items-end justify-between">
-              <div className="text-xs font-black">{amountLabel}</div>
-              <div className="text-lg font-black text-cyan-200">{amountValue}</div>
+              <div className="font-extrabold text-sm">{amountLabel}</div>
+              <div className="text-xl font-black text-cyan-300">{amountValue}</div>
             </div>
           </div>
 
           {actions}
 
           {showDailyRate ? (
-            <div className="mt-4 rounded-2xl p-4 bg-cyan-300/10 border border-cyan-200/25">
-              <div className="text-[11px] font-black text-cyan-200 uppercase tracking-wide mb-2">Taxa diária</div>
+            <div className="mt-5 rounded-2xl p-4 bg-cyan-400/10 border border-cyan-300/30">
+              <div className="text-[11px] font-black text-cyan-300 uppercase tracking-wide mb-2">Taxa diária</div>
 
-              <Row
-                label="Plano anterior"
-                value={`${formatMoney(result.currentValue / result.periodDays)}/dia`}
-                color="text-cyan-200"
-              />
-              <Row label="Novo plano" value={`${formatMoney(result.newValue / result.periodDays)}/dia`} color="text-cyan-200" />
+              <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+                <div className="opacity-80">Plano anterior</div>
+                <div className="font-extrabold text-cyan-200">{formatMoney(result.currentValue / result.periodDays)}/dia</div>
+              </div>
+
+              <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+                <div className="opacity-80">Novo plano</div>
+                <div className="font-extrabold text-cyan-200">{formatMoney(result.newValue / result.periodDays)}/dia</div>
+              </div>
 
               {result.currentModules?.length
                 ? result.currentModules.map((m) => (
-                    <Row
-                      key={m.id}
-                      label={`${m.name} (atual)`}
-                      value={`${formatMoney(m.periodPrice / result.periodDays)}/dia`}
-                      color="text-cyan-200"
-                    />
+                    <div key={m.id} className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+                      <div className="opacity-80">{m.name} (atual)</div>
+                      <div className="font-extrabold text-cyan-200">{formatMoney(m.periodPrice / result.periodDays)}/dia</div>
+                    </div>
                   ))
                 : null}
 
               {result.newModules?.length
                 ? result.newModules.map((m) => (
-                    <Row
-                      key={m.id}
-                      label={`${m.name} (novo)`}
-                      value={`${formatMoney(m.periodPrice / result.periodDays)}/dia`}
-                      color="text-cyan-200"
-                    />
+                    <div key={m.id} className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+                      <div className="opacity-80">{m.name} (novo)</div>
+                      <div className="font-extrabold text-cyan-200">{formatMoney(m.periodPrice / result.periodDays)}/dia</div>
+                    </div>
                   ))
                 : null}
             </div>
@@ -932,42 +996,44 @@ export default function Financeiro() {
 
     // module result
     return (
-      <div className={shell}>
+      <div className="rounded-2xl p-6 border border-purple-300/35 dark:border-purple-500/20 bg-gradient-to-br from-slate-900 to-slate-950 text-white shadow-[0_10px_30px_rgba(0,0,0,0.32)]">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-black flex items-center gap-2">🧾 Resultado</div>
+          <div className="text-base font-extrabold flex items-center gap-2">🧾 Resultado</div>
           <Badge variant="warning">A Cobrar</Badge>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <div className="rounded-xl bg-white/8 border border-white/10 p-3 text-center">
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <div className="rounded-2xl bg-white/8 border border-white/10 p-3 text-center">
             <div className="text-[11px] opacity-70">Período</div>
-            <div className="text-sm font-black">{result.periodDays} dias</div>
+            <div className="text-base font-extrabold">{result.periodDays}d</div>
           </div>
-          <div className="rounded-xl bg-white/8 border border-white/10 p-3 text-center">
+          <div className="rounded-2xl bg-white/8 border border-white/10 p-3 text-center">
             <div className="text-[11px] opacity-70">Restantes</div>
-            <div className="text-sm font-black">{result.daysRemaining} dias</div>
+            <div className="text-base font-extrabold">{result.daysRemaining}d</div>
           </div>
         </div>
 
         {result.plan ? (
-          <div className="mt-4 rounded-xl border border-white/10 overflow-hidden">
-            <div className="px-4 py-2 bg-white/10 text-xs font-black">Plano</div>
-            <div className="px-4 py-3 flex items-center justify-between gap-2">
-              <div className="text-xs font-bold">{periodHuman[result.planPeriod]} • {result.plan}</div>
-              <div className="text-xs font-black">
+          <div className="mt-5 rounded-2xl border border-white/10 overflow-hidden">
+            <div className="px-4 py-2.5 bg-white/10 font-extrabold text-sm">Plano atual</div>
+            <div className="px-4 py-3 flex items-center justify-between gap-3">
+              <div className="font-bold text-sm">
+                {periodHuman[result.planPeriod]} • {result.plan}
+              </div>
+              <div className="font-extrabold text-sm">
                 {formatMoney(result.planValue)} <span className="opacity-70">{periodLabels[result.planPeriod]}</span>
               </div>
             </div>
           </div>
         ) : null}
 
-        <div className="mt-4 rounded-xl border border-white/10 overflow-hidden">
-          <div className="px-4 py-2 bg-white/10 text-xs font-black">Módulos</div>
+        <div className="mt-5 rounded-2xl border border-white/10 overflow-hidden">
+          <div className="px-4 py-2.5 bg-white/10 font-extrabold text-sm">Módulos a adicionar</div>
           <div className="px-4 py-3 space-y-1.5">
             {result.modules.map((m) => (
-              <div key={m.id} className="flex items-center justify-between text-xs">
+              <div key={m.id} className="flex items-center justify-between text-[13px]">
                 <div className="opacity-90">• {m.name}</div>
-                <div className="font-black">
+                <div className="font-extrabold">
                   {formatMoney(m.periodPrice)} <span className="opacity-70">{periodLabels[result.planPeriod]}</span>
                 </div>
               </div>
@@ -975,39 +1041,36 @@ export default function Financeiro() {
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl p-4 bg-white/8 border border-white/10">
+        <div className="mt-5 rounded-2xl p-4 bg-white/8 border border-white/10">
           {result.modules.map((m) => (
-            <Row key={m.id} label={`${m.name} (${result.daysRemaining} dias)`} value={`+ ${formatMoney(m.proportionalValue)}`} color="text-amber-300" />
+            <div key={m.id} className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+              <div className="opacity-80">{m.name}</div>
+              <div className="font-extrabold text-amber-300">+ {formatMoney(m.proportionalValue)}</div>
+            </div>
           ))}
           <div className="mt-3 pt-3 border-t border-white/15 flex items-end justify-between">
-            <div className="text-xs font-black">Valor a Cobrar</div>
-            <div className="text-lg font-black text-cyan-200">{formatMoney(result.totalAmount)}</div>
+            <div className="font-extrabold text-sm">Valor a Cobrar</div>
+            <div className="text-xl font-black text-cyan-300">{formatMoney(result.totalAmount)}</div>
           </div>
         </div>
 
         {actions}
 
         {showDailyRate ? (
-          <div className="mt-4 rounded-2xl p-4 bg-cyan-300/10 border border-cyan-200/25">
-            <div className="text-[11px] font-black text-cyan-200 uppercase tracking-wide mb-2">Taxa diária</div>
+          <div className="mt-5 rounded-2xl p-4 bg-cyan-400/10 border border-cyan-300/30">
+            <div className="text-[11px] font-black text-cyan-300 uppercase tracking-wide mb-2">Taxa diária</div>
             {result.modules.map((m) => (
-              <Row key={m.id} label={m.name} value={`${formatMoney(m.dailyRate)}/dia`} color="text-cyan-200" />
+              <div key={m.id} className="flex items-center justify-between text-[13px] py-2 border-b border-white/10">
+                <div className="opacity-80">{m.name}</div>
+                <div className="font-extrabold text-cyan-200">{formatMoney(m.dailyRate)}/dia</div>
+              </div>
             ))}
           </div>
         ) : null}
 
-        <div className="mt-4 rounded-xl p-3 bg-cyan-300/10 border border-cyan-200/25 text-xs">
+        <div className="mt-5 rounded-2xl p-3 bg-cyan-400/10 border border-cyan-300/30 text-sm">
           💡 Na próxima renovação, será cobrado o valor integral do período.
         </div>
-      </div>
-    );
-  }
-
-  function Row({ label, value, color = "text-white" }) {
-    return (
-      <div className="flex items-center justify-between text-xs py-2 border-b border-white/10 last:border-b-0">
-        <div className="opacity-80">{label}</div>
-        <div className={`font-black ${color}`}>{value}</div>
       </div>
     );
   }
@@ -1021,7 +1084,7 @@ export default function Financeiro() {
           <button
             type="button"
             onClick={confirmClearHistory}
-            className="rounded-xl px-3 py-2 bg-rose-500 text-white font-black text-xs hover:bg-rose-600 transition active:scale-95"
+            className="rounded-2xl px-3 py-2 bg-rose-500 text-white font-bold text-xs hover:bg-rose-600 transition active:scale-95"
             title="Limpar histórico"
           >
             🗑️ Limpar
@@ -1030,8 +1093,8 @@ export default function Financeiro() {
       >
         {!history.length ? (
           <div className="rounded-2xl p-6 border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/50 dark:bg-slate-800/40 text-center">
-            <div className="text-2xl mb-1">📥</div>
-            <div className="font-black text-sm text-gray-800 dark:text-gray-200">Nenhum cálculo salvo</div>
+            <div className="text-2xl mb-2">📥</div>
+            <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">Nenhum cálculo salvo ainda</div>
           </div>
         ) : (
           <div className="space-y-2.5">
@@ -1061,27 +1124,27 @@ export default function Financeiro() {
                   key={idx}
                   className="rounded-2xl p-4 border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/50 dark:bg-slate-800/40"
                 >
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div className="min-w-[220px]">
-                      <div className="font-black text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <div className="font-extrabold text-gray-900 dark:text-white flex items-center gap-2 text-sm">
                         <span>{item.type === "plan" ? "🔁" : "🧩"}</span>
                         <span>{dateStr}</span>
                       </div>
-                      <div className="text-xs text-gray-700 dark:text-gray-300 mt-1 line-clamp-2">{details}</div>
+                      <div className="text-sm text-gray-700 dark:text-gray-300 mt-1">{details}</div>
                       <div className="text-[11px] text-gray-600 dark:text-gray-400 mt-1">
                         {item.daysRemaining} dias restantes de {item.periodDays}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className={`font-black text-sm ${color}`}>
+                      <div className={`font-black ${color} text-sm`}>
                         {sign} {formatMoney(Math.abs(total))}
                       </div>
 
                       <button
                         type="button"
                         onClick={() => setDetailModal({ open: true, item })}
-                        className="rounded-xl px-3 py-2 bg-[#A543FB] text-white font-black text-[11px] hover:brightness-110 transition active:scale-95"
+                        className="rounded-2xl px-3 py-2 bg-[#A543FB] text-white font-bold text-[11px] hover:brightness-110 transition active:scale-95"
                         title="Ver detalhes"
                       >
                         👁️ Ver
@@ -1090,7 +1153,7 @@ export default function Financeiro() {
                       <button
                         type="button"
                         onClick={() => confirmDeleteHistoryItem(idx)}
-                        className="rounded-xl px-3 py-2 bg-white/70 dark:bg-slate-900/40 border border-purple-200/60 dark:border-purple-500/20 text-rose-600 font-black text-[11px] hover:bg-rose-50 dark:hover:bg-slate-900/60 transition active:scale-95"
+                        className="rounded-2xl px-3 py-2 bg-white/70 dark:bg-slate-900/40 border border-purple-200/60 dark:border-purple-500/20 text-rose-600 font-black text-[11px] hover:bg-rose-50 dark:hover:bg-slate-900/60 transition active:scale-95"
                         title="Remover"
                       >
                         ✖️
@@ -1118,62 +1181,56 @@ export default function Financeiro() {
     if (item.type === "plan") {
       const label = item.finalAmount >= 0 ? "Valor a Cobrar" : "Crédito para o Cliente";
       return (
-        <div className="space-y-3 text-sm">
-          <div className="text-xs text-gray-600 dark:text-gray-300">📅 {dateStr}</div>
+        <div className="space-y-3">
+          <div className="text-sm text-gray-600 dark:text-gray-300">📅 {dateStr}</div>
 
           <div className="grid grid-cols-3 gap-2">
-            {[
-              ["Período", `${item.periodDays}d`],
-              ["Usados", `${item.daysUsed}d`],
-              ["Restantes", `${item.daysRemaining}d`],
-            ].map(([a, b]) => (
-              <div key={a} className="rounded-xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
-                <div className="text-[11px] opacity-70">{a}</div>
-                <div className="font-black text-sm">{b}</div>
-              </div>
-            ))}
+            <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
+              <div className="text-[11px] opacity-70">Período</div>
+              <div className="font-black text-base">{item.periodDays}d</div>
+            </div>
+            <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
+              <div className="text-[11px] opacity-70">Usados</div>
+              <div className="font-black text-base">{item.daysUsed}d</div>
+            </div>
+            <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
+              <div className="text-[11px] opacity-70">Restantes</div>
+              <div className="font-black text-base">{item.daysRemaining}d</div>
+            </div>
           </div>
 
           <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 overflow-hidden">
-            <div className="px-4 py-2 bg-purple-50 dark:bg-slate-800/60 text-xs font-black">Plano atual</div>
-            <div className="px-4 py-3 flex items-center justify-between gap-2 flex-wrap">
-              <div className="text-xs font-bold">{periodHuman[item.currentPlanPeriod]} • {item.currentPlan}</div>
-              <div className="text-xs font-black">
-                {formatMoney(item.currentValue)} <span className="opacity-70">{periodLabels[item.currentPlanPeriod]}</span>
-              </div>
+            <div className="px-4 py-2.5 bg-purple-50 dark:bg-slate-800/60 font-black text-sm">Plano atual</div>
+            <div className="px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="font-bold text-sm">{periodHuman[item.currentPlanPeriod]} • {item.currentPlan}</div>
+              <div className="font-black text-sm">{formatMoney(item.currentValue)} <span className="opacity-70">{periodLabels[item.currentPlanPeriod]}</span></div>
             </div>
             {item.currentModules?.length ? (
               <div className="px-4 pb-4 space-y-1.5">
                 {item.currentModules.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-200">
+                  <div key={m.id} className="flex items-center justify-between text-[13px] text-gray-700 dark:text-gray-200">
                     <div>• {m.name}</div>
-                    <div className="font-bold">
-                      {formatMoney(m.periodPrice)} <span className="opacity-70">{periodLabels[item.currentPlanPeriod]}</span>
-                    </div>
+                    <div className="font-bold">{formatMoney(m.periodPrice)} <span className="opacity-70">{periodLabels[item.currentPlanPeriod]}</span></div>
                   </div>
                 ))}
               </div>
             ) : null}
           </div>
 
-          <div className="text-center opacity-60 text-xs">⬇️</div>
+          <div className="text-center opacity-60 text-sm">⬇️</div>
 
           <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 overflow-hidden">
-            <div className="px-4 py-2 bg-purple-50 dark:bg-slate-800/60 text-xs font-black">Novo plano</div>
-            <div className="px-4 py-3 flex items-center justify-between gap-2 flex-wrap">
-              <div className="text-xs font-bold">{periodHuman[item.newPlanPeriod]} • {item.newPlan}</div>
-              <div className="text-xs font-black">
-                {formatMoney(item.newValue)} <span className="opacity-70">{periodLabels[item.newPlanPeriod]}</span>
-              </div>
+            <div className="px-4 py-2.5 bg-purple-50 dark:bg-slate-800/60 font-black text-sm">Novo plano</div>
+            <div className="px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="font-bold text-sm">{periodHuman[item.newPlanPeriod]} • {item.newPlan}</div>
+              <div className="font-black text-sm">{formatMoney(item.newValue)} <span className="opacity-70">{periodLabels[item.newPlanPeriod]}</span></div>
             </div>
             {item.newModules?.length ? (
               <div className="px-4 pb-4 space-y-1.5">
                 {item.newModules.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-200">
+                  <div key={m.id} className="flex items-center justify-between text-[13px] text-gray-700 dark:text-gray-200">
                     <div>• {m.name}</div>
-                    <div className="font-bold">
-                      {formatMoney(m.periodPrice)} <span className="opacity-70">{periodLabels[item.newPlanPeriod]}</span>
-                    </div>
+                    <div className="font-bold">{formatMoney(m.periodPrice)} <span className="opacity-70">{periodLabels[item.newPlanPeriod]}</span></div>
                   </div>
                 ))}
               </div>
@@ -1181,29 +1238,29 @@ export default function Financeiro() {
           </div>
 
           <div className="rounded-2xl p-4 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white">
-            <div className="flex items-center justify-between text-xs py-2 border-b border-white/15">
-              <div className="opacity-90">Crédito plano</div>
+            <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/15">
+              <div className="opacity-90">Crédito plano anterior</div>
               <div className="font-black">- {formatMoney(item.creditFromOldPlan)}</div>
             </div>
             {item.creditFromOldModules > 0 ? (
-              <div className="flex items-center justify-between text-xs py-2 border-b border-white/15">
+              <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/15">
                 <div className="opacity-90">Crédito módulos</div>
                 <div className="font-black">- {formatMoney(item.creditFromOldModules)}</div>
               </div>
             ) : null}
-            <div className="flex items-center justify-between text-xs py-2 border-b border-white/15">
-              <div className="opacity-90">Cobrança plano</div>
+            <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/15">
+              <div className="opacity-90">Cobrança novo plano</div>
               <div className="font-black">+ {formatMoney(item.chargeForNewPlan)}</div>
             </div>
             {item.chargeForNewModules > 0 ? (
-              <div className="flex items-center justify-between text-xs py-2 border-b border-white/15">
+              <div className="flex items-center justify-between text-[13px] py-2 border-b border-white/15">
                 <div className="opacity-90">Cobrança módulos</div>
                 <div className="font-black">+ {formatMoney(item.chargeForNewModules)}</div>
               </div>
             ) : null}
             <div className="mt-3 pt-3 border-t border-white/20 flex items-end justify-between">
-              <div className="text-xs font-black">{label}</div>
-              <div className="text-lg font-black">{formatMoney(Math.abs(item.finalAmount))}</div>
+              <div className="font-black text-sm">{label}</div>
+              <div className="text-xl font-black">{formatMoney(Math.abs(item.finalAmount))}</div>
             </div>
           </div>
         </div>
@@ -1213,38 +1270,36 @@ export default function Financeiro() {
     // module
     return (
       <div className="space-y-3">
-        <div className="text-xs text-gray-600 dark:text-gray-300">📅 {dateStr}</div>
+        <div className="text-sm text-gray-600 dark:text-gray-300">📅 {dateStr}</div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
+          <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
             <div className="text-[11px] opacity-70">Período</div>
-            <div className="font-black text-sm">{item.periodDays} dias</div>
+            <div className="font-black text-base">{item.periodDays}d</div>
           </div>
-          <div className="rounded-xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
+          <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/40 p-3 text-center">
             <div className="text-[11px] opacity-70">Restantes</div>
-            <div className="font-black text-sm">{item.daysRemaining} dias</div>
+            <div className="font-black text-base">{item.daysRemaining}d</div>
           </div>
         </div>
 
         {item.plan ? (
           <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 overflow-hidden">
-            <div className="px-4 py-2 bg-purple-50 dark:bg-slate-800/60 text-xs font-black">Plano</div>
-            <div className="px-4 py-3 flex items-center justify-between gap-2 flex-wrap">
-              <div className="text-xs font-bold">{periodHuman[item.planPeriod]} • {item.plan}</div>
-              <div className="text-xs font-black">
-                {formatMoney(item.planValue)} <span className="opacity-70">{periodLabels[item.planPeriod]}</span>
-              </div>
+            <div className="px-4 py-2.5 bg-purple-50 dark:bg-slate-800/60 font-black text-sm">Plano atual</div>
+            <div className="px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="font-bold text-sm">{periodHuman[item.planPeriod]} • {item.plan}</div>
+              <div className="font-black text-sm">{formatMoney(item.planValue)} <span className="opacity-70">{periodLabels[item.planPeriod]}</span></div>
             </div>
           </div>
         ) : null}
 
         <div className="rounded-2xl border border-purple-200/60 dark:border-purple-500/20 overflow-hidden">
-          <div className="px-4 py-2 bg-purple-50 dark:bg-slate-800/60 text-xs font-black">Módulos</div>
+          <div className="px-4 py-2.5 bg-purple-50 dark:bg-slate-800/60 font-black text-sm">Módulos adicionados</div>
           <div className="px-4 py-3 space-y-1.5">
             {item.modules.map((m) => (
-              <div key={m.id} className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-200">
+              <div key={m.id} className="flex items-center justify-between text-[13px] text-gray-700 dark:text-gray-200">
                 <div>• {m.name}</div>
-                <div className="font-black">{formatMoney(m.proportionalValue)}</div>
+                <div className="font-bold">{formatMoney(m.proportionalValue)}</div>
               </div>
             ))}
           </div>
@@ -1252,8 +1307,8 @@ export default function Financeiro() {
 
         <div className="rounded-2xl p-4 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white">
           <div className="flex items-end justify-between">
-            <div className="text-xs font-black">Valor a Cobrar</div>
-            <div className="text-lg font-black">{formatMoney(item.totalAmount)}</div>
+            <div className="font-black text-sm">Valor a Cobrar</div>
+            <div className="text-xl font-black">{formatMoney(item.totalAmount)}</div>
           </div>
         </div>
       </div>
@@ -1264,15 +1319,15 @@ export default function Financeiro() {
 
   const PlanForm = (
     <Card title="Cenário: Mudança de Plano" icon="🔁">
-      <div className="rounded-2xl p-4 border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/30 text-xs text-gray-700 dark:text-gray-200">
+      <div className="rounded-2xl p-4 border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/30 text-sm text-gray-700 dark:text-gray-200">
         ℹ️ O valor não utilizado do plano antigo vira <b>crédito</b>. O plano novo é cobrado proporcional aos dias restantes.
       </div>
 
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-black text-sm text-gray-900 dark:text-white">Plano Atual</div>
-            <div className="text-[11px] font-black text-purple-700 dark:text-purple-300">⬇️</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-black text-gray-900 dark:text-white">Plano Atual</div>
+            <div className="text-[11px] font-bold text-purple-700 dark:text-purple-300">⬇️</div>
           </div>
 
           <Label>Plano</Label>
@@ -1283,7 +1338,7 @@ export default function Financeiro() {
             <option value="premium">Plano Premium</option>
           </SelectBase>
 
-          <div className="mt-3">
+          <div className="mt-4">
             <Label>Período</Label>
             <SelectBase value={currentPlanPeriod} onChange={(e) => setCurrentPlanPeriod(e.target.value)}>
               <option value="mensal">Mensal</option>
@@ -1293,7 +1348,7 @@ export default function Financeiro() {
             </SelectBase>
           </div>
 
-          <div className="mt-3">
+          <div className="mt-4">
             <Label>Valor do Plano (R$)</Label>
             <InputBase
               inputMode="decimal"
@@ -1301,30 +1356,30 @@ export default function Financeiro() {
               value={currentPlanValueText}
               onChange={(e) => setCurrentPlanValueText(e.target.value)}
             />
-            <div className="text-[11px] text-gray-600 dark:text-gray-300 mt-1.5">
+            <div className="text-[11px] text-gray-600 dark:text-gray-300 mt-2">
               Dica: pode digitar <b>199,90</b> ou <b>R$ 199,90</b>.
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <Label>Início</Label>
+              <Label>Início do período</Label>
               <InputBase type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div>
-              <Label>Fim</Label>
+              <Label>Fim do período</Label>
               <InputBase type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div>
-              <Label>Alteração</Label>
+              <Label>Data da alteração</Label>
               <InputBase type="date" value={changeDate} onChange={(e) => setChangeDate(e.target.value)} />
             </div>
             <div>
               <Label>Dias restantes</Label>
-              <div className="rounded-xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/50 px-3 py-2 text-center">
+              <div className="rounded-2xl border-2 border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/50 px-3 py-2.5 text-center">
                 <div className="text-xl font-black text-purple-700 dark:text-purple-300">
                   {daysRemainingPlan == null ? "--" : daysRemainingPlan}
                 </div>
@@ -1333,11 +1388,11 @@ export default function Financeiro() {
             </div>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-5">
             <button
               type="button"
               onClick={() => setShowCurrentMods((v) => !v)}
-              className="flex items-center gap-2 text-xs font-black text-gray-800 dark:text-gray-200 hover:text-purple-700 dark:hover:text-purple-300 transition"
+              className="flex items-center gap-2 text-sm font-extrabold text-gray-800 dark:text-gray-200 hover:text-purple-700 dark:hover:text-purple-300 transition"
             >
               <span className={`transition ${showCurrentMods ? "rotate-90" : ""}`}>▶</span>
               Módulos atuais <span className="text-[11px] font-bold opacity-70">(opcional)</span>
@@ -1358,9 +1413,9 @@ export default function Financeiro() {
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-black text-sm text-gray-900 dark:text-white">Novo Plano</div>
-            <div className="text-[11px] font-black text-purple-700 dark:text-purple-300">⬆️</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-black text-gray-900 dark:text-white">Novo Plano</div>
+            <div className="text-[11px] font-bold text-purple-700 dark:text-purple-300">⬆️</div>
           </div>
 
           <Label>Plano</Label>
@@ -1371,7 +1426,7 @@ export default function Financeiro() {
             <option value="premium">Plano Premium</option>
           </SelectBase>
 
-          <div className="mt-3">
+          <div className="mt-4">
             <Label>Período</Label>
             <SelectBase value={newPlanPeriod} onChange={(e) => setNewPlanPeriod(e.target.value)}>
               <option value="mensal">Mensal</option>
@@ -1381,7 +1436,7 @@ export default function Financeiro() {
             </SelectBase>
           </div>
 
-          <div className="mt-3">
+          <div className="mt-4">
             <Label>Valor do Novo Plano (R$)</Label>
             <InputBase
               inputMode="decimal"
@@ -1391,11 +1446,11 @@ export default function Financeiro() {
             />
           </div>
 
-          <div className="mt-4">
+          <div className="mt-5">
             <button
               type="button"
               onClick={() => setShowNewMods((v) => !v)}
-              className="flex items-center gap-2 text-xs font-black text-gray-800 dark:text-gray-200 hover:text-purple-700 dark:hover:text-purple-300 transition"
+              className="flex items-center gap-2 text-sm font-extrabold text-gray-800 dark:text-gray-200 hover:text-purple-700 dark:hover:text-purple-300 transition"
             >
               <span className={`transition ${showNewMods ? "rotate-90" : ""}`}>▶</span>
               Novos módulos <span className="text-[11px] font-bold opacity-70">(opcional)</span>
@@ -1416,18 +1471,18 @@ export default function Financeiro() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-2.5">
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-2">
         <button
           type="button"
           onClick={calculate}
-          className="rounded-xl px-5 py-3 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white font-black shadow-[0_8px_22px_rgba(139,92,246,0.22)] hover:brightness-110 transition active:scale-95 text-sm"
+          className="rounded-2xl px-5 py-3 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white font-black shadow-[0_10px_24px_rgba(139,92,246,0.18)] hover:brightness-110 transition active:scale-95"
         >
           🧮 Calcular
         </button>
         <button
           type="button"
           onClick={clearForm}
-          className="rounded-xl px-5 py-3 bg-white/70 dark:bg-slate-800/70 border border-purple-200/60 dark:border-purple-500/20 text-gray-800 dark:text-gray-100 font-black hover:bg-purple-50 dark:hover:bg-slate-800 transition active:scale-95 text-sm"
+          className="rounded-2xl px-5 py-3 bg-white/70 dark:bg-slate-800/70 border-2 border-purple-200/60 dark:border-purple-500/20 text-gray-800 dark:text-gray-100 font-black hover:bg-purple-50 dark:hover:bg-slate-800 transition active:scale-95"
         >
           🧽 Limpar
         </button>
@@ -1437,11 +1492,11 @@ export default function Financeiro() {
 
   const ModuleForm = (
     <Card title="Cenário: Adicionar Módulo" icon="🧩">
-      <div className="rounded-2xl p-4 border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/30 text-xs text-gray-700 dark:text-gray-200">
+      <div className="rounded-2xl p-4 border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/30 text-sm text-gray-700 dark:text-gray-200">
         ℹ️ O módulo é cobrado apenas pelos dias entre a contratação e o fim do período atual.
       </div>
 
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <Label>Plano contratado (opcional)</Label>
           <SelectBase value={modulePlan} onChange={(e) => setModulePlan(e.target.value)}>
@@ -1451,7 +1506,7 @@ export default function Financeiro() {
             <option value="premium">Plano Premium</option>
           </SelectBase>
 
-          <div className="mt-3">
+          <div className="mt-4">
             <Label>Período</Label>
             <SelectBase value={modulePlanPeriod} onChange={(e) => setModulePlanPeriod(e.target.value)}>
               <option value="mensal">Mensal</option>
@@ -1461,7 +1516,7 @@ export default function Financeiro() {
             </SelectBase>
           </div>
 
-          <div className="mt-3">
+          <div className="mt-4">
             <Label>Valor do Plano (R$) (opcional)</Label>
             <InputBase
               inputMode="decimal"
@@ -1471,25 +1526,25 @@ export default function Financeiro() {
             />
           </div>
 
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <Label>Início</Label>
+              <Label>Início do período</Label>
               <InputBase type="date" value={mStartDate} onChange={(e) => setMStartDate(e.target.value)} />
             </div>
             <div>
-              <Label>Fim</Label>
+              <Label>Fim do período</Label>
               <InputBase type="date" value={mEndDate} onChange={(e) => setMEndDate(e.target.value)} />
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div>
-              <Label>Contratação</Label>
+              <Label>Data da contratação</Label>
               <InputBase type="date" value={mChangeDate} onChange={(e) => setMChangeDate(e.target.value)} />
             </div>
             <div>
               <Label>Dias restantes</Label>
-              <div className="rounded-xl border border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/50 px-3 py-2 text-center">
+              <div className="rounded-2xl border-2 border-purple-200/60 dark:border-purple-500/20 bg-purple-50/40 dark:bg-slate-800/50 px-3 py-2.5 text-center">
                 <div className="text-xl font-black text-purple-700 dark:text-purple-300">
                   {daysRemainingModule == null ? "--" : daysRemainingModule}
                 </div>
@@ -1500,7 +1555,7 @@ export default function Financeiro() {
         </div>
 
         <div>
-          <div className="font-black text-sm text-gray-900 dark:text-white mb-2">Módulos a adicionar</div>
+          <div className="font-black text-gray-900 dark:text-white mb-3">Módulos a adicionar</div>
           <ModuleList
             period={modulePlanPeriod}
             selected={addModulesSel}
@@ -1511,18 +1566,18 @@ export default function Financeiro() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-2.5">
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-2">
         <button
           type="button"
           onClick={calculate}
-          className="rounded-xl px-5 py-3 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white font-black shadow-[0_8px_22px_rgba(139,92,246,0.22)] hover:brightness-110 transition active:scale-95 text-sm"
+          className="rounded-2xl px-5 py-3 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white font-black shadow-[0_10px_24px_rgba(139,92,246,0.18)] hover:brightness-110 transition active:scale-95"
         >
           🧮 Calcular
         </button>
         <button
           type="button"
           onClick={clearForm}
-          className="rounded-xl px-5 py-3 bg-white/70 dark:bg-slate-800/70 border border-purple-200/60 dark:border-purple-500/20 text-gray-800 dark:text-gray-100 font-black hover:bg-purple-50 dark:hover:bg-slate-800 transition active:scale-95 text-sm"
+          className="rounded-2xl px-5 py-3 bg-white/70 dark:bg-slate-800/70 border-2 border-purple-200/60 dark:border-purple-500/20 text-gray-800 dark:text-gray-100 font-black hover:bg-purple-50 dark:hover:bg-slate-800 transition active:scale-95"
         >
           🧽 Limpar
         </button>
@@ -1531,13 +1586,14 @@ export default function Financeiro() {
   );
 
   return (
-    <div className="text-[0.95rem]">
+    <div className="text-sm">
       <Toast toast={toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />
 
       {Header}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-7">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
         <div className="space-y-6">{scenario === "plan" ? PlanForm : ModuleForm}</div>
+
         <div className="space-y-6">
           <ResultPanel />
           <HistoryPanel />
@@ -1553,7 +1609,7 @@ export default function Financeiro() {
             <button
               type="button"
               onClick={() => setConfirmModal({ open: false, action: null, message: "" })}
-              className="flex-1 rounded-xl px-4 py-2.5 bg-white/70 dark:bg-slate-800/70 border border-purple-200/60 dark:border-purple-500/20 font-black text-gray-800 dark:text-gray-100 hover:bg-purple-50 dark:hover:bg-slate-800 transition active:scale-95 text-sm"
+              className="flex-1 rounded-2xl px-4 py-2.5 bg-white/70 dark:bg-slate-800/70 border-2 border-purple-200/60 dark:border-purple-500/20 font-black text-gray-800 dark:text-gray-100 hover:bg-purple-50 dark:hover:bg-slate-800 transition active:scale-95"
             >
               Cancelar
             </button>
@@ -1564,14 +1620,14 @@ export default function Financeiro() {
                 setConfirmModal({ open: false, action: null, message: "" });
                 showToast("Ação concluída.", "success");
               }}
-              className="flex-1 rounded-xl px-4 py-2.5 bg-rose-500 text-white font-black hover:bg-rose-600 transition active:scale-95 text-sm"
+              className="flex-1 rounded-2xl px-4 py-2.5 bg-rose-500 text-white font-black hover:bg-rose-600 transition active:scale-95"
             >
               Confirmar
             </button>
           </div>
         }
       >
-        <div className="text-sm text-gray-700 dark:text-gray-200">{confirmModal.message}</div>
+        <div className="text-gray-700 dark:text-gray-200 text-sm">{confirmModal.message}</div>
       </Modal>
 
       <Modal
@@ -1582,7 +1638,7 @@ export default function Financeiro() {
           <button
             type="button"
             onClick={() => setDetailModal({ open: false, item: null })}
-            className="w-full rounded-xl px-5 py-3 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white font-black hover:brightness-110 transition active:scale-95 text-sm"
+            className="w-full rounded-2xl px-5 py-3 bg-gradient-to-br from-[#A543FB] to-[#7e22ce] text-white font-black hover:brightness-110 transition active:scale-95"
           >
             Fechar
           </button>
