@@ -5,6 +5,7 @@ import Conversor from "./components/Conversor.jsx";
 import PlanilhaOficial from "./components/PlanilhaOficial.jsx";
 import SupportInsights from "./components/SupportInsights.jsx";
 import VideoCenter from "./components/VideoCenter.jsx";
+import Financeiro from "./components/Financeiro.jsx"; // ✅ ADICIONADO
 import ChatWidget from "./components/ChatWidget/index.jsx";
 
 /* Sobe o scroll ao trocar de rota */
@@ -49,6 +50,9 @@ export default function App() {
                 <NavLink to="/videos" className="nav-link px-6 py-3 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300">
                   🎥 Vídeos
                 </NavLink>
+                <NavLink to="/financeiro" className="nav-link px-6 py-3 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300">
+                  💰 Financeiro
+                </NavLink>
               </nav>
 
               {/* Toggle Dark */}
@@ -77,6 +81,7 @@ export default function App() {
                 </>
               }
             />
+
             <Route
               path="/insights"
               element={
@@ -85,6 +90,7 @@ export default function App() {
                 </section>
               }
             />
+
             <Route
               path="/videos"
               element={
@@ -93,6 +99,17 @@ export default function App() {
                 </section>
               }
             />
+
+            {/* ✅ NOVA ROTA */}
+            <Route
+              path="/financeiro"
+              element={
+                <section className="space-y-10">
+                  <Financeiro />
+                </section>
+              }
+            />
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
