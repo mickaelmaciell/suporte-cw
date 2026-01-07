@@ -1,3 +1,5 @@
+"use client";
+
 import { useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 
@@ -254,6 +256,16 @@ function splitArray(arr, size) {
   return out;
 }
 
+/* ========== Helpers de nome de arquivo ========== */
+function ensureCsvName(name, fallback = "clientes_processados.csv") {
+  const n = softTrim(name) || fallback;
+  return /\.csv$/i.test(n) ? n : `${n}.csv`;
+}
+function baseFromCsvName(name, fallback = "clientes_processados.csv") {
+  const n = ensureCsvName(name, fallback);
+  return n.replace(/\.csv$/i, "");
+}
+
 /* ========== Componente ========== */
 export default function PlanilhaOficial() {
   const [rawPreview, setRawPreview] = useState([]);
@@ -312,7 +324,11 @@ export default function PlanilhaOficial() {
 
   /* ======= Modal para salvar no "banco simples" ======= */
   const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [pendingDownloadAction, setPendingDownloadAction] = useState(null); // "single" | "allParts"
+
+  // ✅ Agora é um OBJETO para suportar: single | allZip | part
+  // { kind: "single" } | { kind: "allZip" } | { kind: "part", partIndex: number }
+  const [pendingDownloadAction, setPendingDownloadAction] = useState(null);
+
   const [saveForm, setSaveForm] = useState({
     atendente: "",
     estabelecimento: "",
@@ -322,7 +338,7 @@ export default function PlanilhaOficial() {
   const [isSaving, setIsSaving] = useState(false);
 
   /* ======= CSVs para envio ao Apps Script ======= */
-  const [originalCSV, setOriginalCSV] = useState("");   // planilha importada (bruta)
+  const [originalCSV, setOriginalCSV] = useState("");     // planilha importada (bruta)
   const [fullOutputCSV, setFullOutputCSV] = useState(""); // planilha corrigida (completa)
 
   const hasResult = useMemo(
@@ -395,31 +411,68 @@ export default function PlanilhaOficial() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
-  }
 
-  function handleDownloadAllParts() {
-    if (!outputParts.length) return;
-    outputParts.forEach((p) => triggerDownloadBlob(p.blob, p.name));
+    // ✅ revogar com atraso evita falhas em alguns navegadores
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
   function handleDownloadSingle() {
     if (outputCSV) {
       triggerDownloadBlob(
         new Blob([outputCSV], { type: "text/csv;charset=utf-8" }),
-        fileName || "clientes_processados.csv"
+        ensureCsvName(fileName, "clientes_processados.csv")
       );
     }
   }
 
-  function handleDownloadDeleted() {
-    if (!deletedParts.length) return;
-    deletedParts.forEach((p) => triggerDownloadBlob(p.blob, p.name));
+  // ✅ Baixar uma parte específica
+  function handleDownloadPart(idx) {
+    const p = outputParts[idx];
+    if (!p) return;
+    triggerDownloadBlob(p.blob, p.name);
   }
 
-  function openSaveModal(action) {
+  // ✅ NOVO: Baixar TODAS as partes em ZIP (resolve “só baixa a primeira”)
+  async function handleDownloadAllPartsZip() {
+    if (!outputParts.length) return;
+
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+
+    // adiciona cada parte no zip
+    outputParts.forEach((p) => {
+      zip.file(p.name, p.blob);
+    });
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const base = baseFromCsvName(fileName, "clientes_processados.csv");
+    triggerDownloadBlob(zipBlob, `${base}_partes.zip`);
+  }
+
+  // ✅ Melhorado: deletados em ZIP quando houver mais de 1 parte
+  async function handleDownloadDeleted() {
+    if (!deletedParts.length) return;
+
+    if (deletedParts.length === 1) {
+      triggerDownloadBlob(deletedParts[0].blob, deletedParts[0].name);
+      return;
+    }
+
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+
+    deletedParts.forEach((p) => {
+      zip.file(p.name, p.blob);
+    });
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const base = baseFromCsvName(fileName, "clientes_processados.csv");
+    triggerDownloadBlob(zipBlob, `${base}_deletados.zip`);
+  }
+
+  function openSaveModal(actionObj) {
     if (!hasResult) return;
-    setPendingDownloadAction(action);
+    setPendingDownloadAction(actionObj);
     setSaveError("");
     setSaveModalOpen(true);
   }
@@ -433,6 +486,17 @@ export default function PlanilhaOficial() {
   function handleChangeSaveField(field, value) {
     setSaveForm((prev) => ({ ...prev, [field]: value }));
   }
+
+  function getModalButtonLabel() {
+    const kind = pendingDownloadAction?.kind;
+    if (kind === "allZip") return `Salvar e baixar TODAS as partes (.zip)`;
+    if (kind === "part") {
+      const n = (pendingDownloadAction?.partIndex ?? 0) + 1;
+      return `Salvar e baixar parte ${n}`;
+    }
+    return "Salvar e baixar planilha";
+  }
+
   async function handleConfirmAndDownload(e) {
     e.preventDefault();
 
@@ -440,7 +504,6 @@ export default function PlanilhaOficial() {
     const estabelecimento = saveForm.estabelecimento.trim();
     const portal = saveForm.portal.trim();
 
-    // Campos obrigatórios
     if (!atendente || !estabelecimento || !portal) {
       setSaveError("Preencha todos os campos obrigatórios.");
       return;
@@ -449,7 +512,6 @@ export default function PlanilhaOficial() {
     setIsSaving(true);
     setSaveError("");
 
-    // Payload completo que o Apps Script espera
     const payload = {
       nomeAtendente: atendente,
       nomeEstabelecimento: estabelecimento,
@@ -458,31 +520,35 @@ export default function PlanilhaOficial() {
       csvCorrigida: fullOutputCSV || outputCSV || "",
     };
 
+    // ⚠️ no-cors não permite ler resposta, mas envia.
+    // Mantemos como você já tinha; e mesmo se falhar, não trava download.
     try {
-      // Envia para o Apps Script sem esbarrar em CORS
       await fetch(SIMPLE_DB_WEB_APP_URL, {
         method: "POST",
         mode: "no-cors",
         body: JSON.stringify(payload),
       });
-      // Em "no-cors" não dá para ler resposta, mas o pedido é enviado.
     } catch (err) {
       console.error("Erro ao enviar para o banco:", err);
-      // Mesmo se der erro aqui, não vamos travar o download
     }
 
-    // Depois de tentar salvar, faz o download
-    if (pendingDownloadAction === "single") {
-      handleDownloadSingle();
-    } else if (pendingDownloadAction === "allParts") {
-      handleDownloadAllParts();
-    }
+    // ✅ DOWNLOADS corrigidos
+    try {
+      const kind = pendingDownloadAction?.kind;
 
-    // Fecha modal e reseta apenas o formulário
-    setSaveModalOpen(false);
-    setPendingDownloadAction(null);
-    setSaveForm({ atendente: "", estabelecimento: "", portal: "" });
-    setIsSaving(false);
+      if (kind === "single") {
+        handleDownloadSingle();
+      } else if (kind === "allZip") {
+        await handleDownloadAllPartsZip();
+      } else if (kind === "part") {
+        handleDownloadPart(pendingDownloadAction.partIndex);
+      }
+    } finally {
+      setSaveModalOpen(false);
+      setPendingDownloadAction(null);
+      setSaveForm({ atendente: "", estabelecimento: "", portal: "" });
+      setIsSaving(false);
+    }
   }
 
   /* ========== Upload/Leitura de arquivo ========== */
@@ -490,14 +556,11 @@ export default function PlanilhaOficial() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // limpa prévia anterior
     setPreviewRows([]);
 
-    // Lê o conteúdo completo para poder enviar como "csvImportada"
     const originalText = await file.text();
     setOriginalCSV(originalText);
 
-    // Usa apenas o início para heurística de delimitador
     const firstChunk = originalText.slice(0, 8192);
     const detected = heuristicDelimiterDetect(firstChunk);
 
@@ -601,7 +664,6 @@ export default function PlanilhaOficial() {
   }
 
   function canApplyMap(sel) {
-    // Mínimo: Nome e (Telefone OU WhatsApp)
     return sel && sel.nome >= 0 && (sel.telefone >= 0 || sel.whatsapp >= 0);
   }
 
@@ -626,7 +688,6 @@ export default function PlanilhaOficial() {
 
       setRawPreview(rows.slice(0, 5));
 
-      // 1) Detectar cabeçalho e mapeamento
       let startIndex = 0;
       let headerMap = null;
       let headerDetected = false;
@@ -679,9 +740,7 @@ export default function PlanilhaOficial() {
           if (confPhone < LOW_CONF_THRESHOLD) {
             lowConfidence = true;
             lowReasons.push(
-              `Baixa confiança na detecção de Telefone (${(confPhone * 100).toFixed(
-                0
-              )}%).`
+              `Baixa confiança na detecção de Telefone (${(confPhone * 100).toFixed(0)}%).`
             );
           }
           if (
@@ -697,9 +756,7 @@ export default function PlanilhaOficial() {
             (headerMap?.whatsapp ?? -1) === -1
           ) {
             lowConfidence = true;
-            lowReasons.push(
-              "Cabeçalho encontrado, mas Telefone/WhatsApp não foi mapeado."
-            );
+            lowReasons.push("Cabeçalho encontrado, mas Telefone/WhatsApp não foi mapeado.");
           }
         }
 
@@ -724,8 +781,8 @@ export default function PlanilhaOficial() {
         invalid_both: 0,
         no_valid_number: 0,
         invalid_format: 0,
-        invalid_email: 0, // info
-        invalid_points: 0, // info
+        invalid_email: 0,
+        invalid_points: 0,
         used_whatsapp_fallback: 0,
       };
 
@@ -750,7 +807,6 @@ export default function PlanilhaOficial() {
 
         totalLidas += 1;
 
-        // === Telefone preferencial + fallback WhatsApp ===
         let chosenSource = "";
         let finalPhone = "";
         let reason = null;
@@ -764,17 +820,14 @@ export default function PlanilhaOficial() {
           finalPhone = formatBrazilianNumber(telefoneRaw);
           chosenSource = "telefone";
         } else if (!telHas && waOk) {
-          // telefone vazio → tenta whatsapp
           finalPhone = formatBrazilianNumber(whatsappRaw);
           chosenSource = "whatsapp";
           deleted.used_whatsapp_fallback += 1;
         } else if (telHas && !telOk && waOk) {
-          // telefone inválido → fallback no whatsapp
           finalPhone = formatBrazilianNumber(whatsappRaw);
           chosenSource = "whatsapp";
           deleted.used_whatsapp_fallback += 1;
         } else {
-          // Nenhum válido → classifica motivo
           if (telHas && waHas && !telOk && !waOk) {
             reason = "invalid_both";
           } else if (telHas && !telOk) {
@@ -786,15 +839,12 @@ export default function PlanilhaOficial() {
           }
         }
 
-        // Nome vazio NÃO deleta
         const nomeOut = nomeRaw || "Cliente";
 
-        // Email inválido → apaga o campo (não deleta)
         const emailValid = isValidEmail(emailRaw);
         const emailOut = emailValid ? emailRaw : "";
         if (!emailValid) deleted.invalid_email += 1;
 
-        // Pontos → só dígitos (não deleta)
         const pontosOut = normalizePoints(pontosRaw);
         if (pontosRaw && pontosOut === "") deleted.invalid_points += 1;
 
@@ -819,10 +869,8 @@ export default function PlanilhaOficial() {
           });
         }
 
-        // Debug (primeiras 10)
         if (sample.length < 10) {
-          const pontosShow =
-            pontosOut === "" && pontosRaw ? "(apagado)" : pontosOut;
+          const pontosShow = pontosOut === "" && pontosRaw ? "(apagado)" : pontosOut;
           const emailShow = emailOut === "" && emailRaw ? "(apagado)" : emailOut;
 
           sample.push({
@@ -846,27 +894,19 @@ export default function PlanilhaOficial() {
         }
       }
 
-      // Debug amostra
       setDebug((prev) => ({ ...prev, sampleExtract: sample }));
-
-      // Atualiza pré-visualização (primeiras 3 linhas da planilha corrigida)
       setPreviewRows(processadas.slice(0, 3));
 
-      // Monta CSV completo de saída (corrigido) para enviar ao Apps Script
       const fullCsvOut = buildOutputCSV(processadas);
       setFullOutputCSV(fullCsvOut);
 
-      // Saída válida (chunk de 5000) – para DOWNLOAD
       const CHUNK = 5000;
       if (processadas.length > CHUNK) {
         const slices = splitArray(processadas, CHUNK);
         const parts = slices.map((slice, idx) => {
           const csvStr = buildOutputCSV(slice);
           return {
-            name: `${(fileName || "clientes_processados").replace(
-              /\.csv$/i,
-              ""
-            )}_parte_${idx + 1}.csv`,
+            name: `${(fileName || "clientes_processados").replace(/\.csv$/i, "")}_parte_${idx + 1}.csv`,
             blob: new Blob([csvStr], { type: "text/csv;charset=utf-8" }),
           };
         });
@@ -877,15 +917,11 @@ export default function PlanilhaOficial() {
         setOutputParts([]);
       }
 
-      // CSV de deletados
       if (deletedRowsData.length > 0) {
         const delSlices = splitArray(deletedRowsData, CHUNK);
         const delParts = delSlices.map((slice, idx) => {
           const csv = Papa.unparse(slice, { delimiter: ";" });
-          const base = (fileName || "clientes_processados").replace(
-            /\.csv$/i,
-            ""
-          );
+          const base = (fileName || "clientes_processados").replace(/\.csv$/i, "");
           const name =
             delSlices.length > 1
               ? `${base}_deletados_parte_${idx + 1}.csv`
@@ -909,9 +945,7 @@ export default function PlanilhaOficial() {
     } catch (err) {
       setDebug((prev) => ({
         ...prev,
-        sampleExtract: [
-          { rowNum: "-", reason: "EXCEPTION", error: String(err?.message || err) },
-        ],
+        sampleExtract: [{ rowNum: "-", reason: "EXCEPTION", error: String(err?.message || err) }],
       }));
       alertCsvFail();
     }
@@ -931,6 +965,7 @@ export default function PlanilhaOficial() {
   }
 
   const hasDeleted = report.linhasDeletadas.length > 0;
+
   return (
     <section className={sectionCard}>
       {/* Modal para salvar no banco simples antes de baixar */}
@@ -956,8 +991,7 @@ export default function PlanilhaOficial() {
               Salvar informações antes de baixar a planilha
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              Preencha os dados abaixo. Eles serão salvos automaticamente no banco
-               e, em seguida, a planilha será baixada.
+              Preencha os dados abaixo. Eles serão salvos automaticamente no banco e, em seguida, o arquivo será baixado.
             </p>
 
             <form onSubmit={handleConfirmAndDownload} className="space-y-4">
@@ -980,9 +1014,7 @@ export default function PlanilhaOficial() {
                 <input
                   type="text"
                   value={saveForm.estabelecimento}
-                  onChange={(e) =>
-                    handleChangeSaveField("estabelecimento", e.target.value)
-                  }
+                  onChange={(e) => handleChangeSaveField("estabelecimento", e.target.value)}
                   className="w-full rounded-xl border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
@@ -1025,18 +1057,10 @@ export default function PlanilhaOficial() {
                             key={idx}
                             className="border-t border-purple-100/60 dark:border-purple-700/40"
                           >
-                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
-                              {r.nome}
-                            </td>
-                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
-                              {r.telefone}
-                            </td>
-                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
-                              {r.email}
-                            </td>
-                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">
-                              {r.pontos}
-                            </td>
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">{r.nome}</td>
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">{r.telefone}</td>
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">{r.email}</td>
+                            <td className="px-2 py-1 text-gray-800 dark:text-gray-100">{r.pontos}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1055,11 +1079,7 @@ export default function PlanilhaOficial() {
                   disabled={isSaving}
                   className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-violet-600 text-white font-medium text-sm hover:from-purple-500 hover:to-violet-500 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 shadow-lg"
                 >
-                  {isSaving
-                    ? "Salvando..."
-                    : pendingDownloadAction === "allParts"
-                    ? "Salvar e baixar todas as partes"
-                    : "Salvar e baixar planilha"}
+                  {isSaving ? "Salvando..." : getModalButtonLabel()}
                 </button>
                 <button
                   type="button"
@@ -1085,8 +1105,7 @@ export default function PlanilhaOficial() {
             Tratador de CSV — Nome, Telefone, Email e Pontos (com Debug)
           </h2>
           <p className="text-gray-600 dark:text-gray-300 text-lg mt-2">
-            Mapeamento automático robusto, <strong>um único telefone</strong> e exportação no
-            layout oficial.
+            Mapeamento automático robusto, <strong>um único telefone</strong> e exportação no layout oficial.
           </p>
         </div>
       </div>
@@ -1100,8 +1119,7 @@ export default function PlanilhaOficial() {
             </h3>
             <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
               Pode enviar CSV em qualquer ordem (com/sem cabeçalho). Ative o <strong>Debug</strong>{" "}
-              se algo parecer estranho ou abra o <strong>Mapeamento Manual</strong> para ajustar
-              colunas.
+              se algo parecer estranho ou abra o <strong>Mapeamento Manual</strong> para ajustar colunas.
             </p>
           </div>
 
@@ -1156,8 +1174,7 @@ export default function PlanilhaOficial() {
 
               {debug.lowConfidence && (
                 <span className="text-amber-800 dark:text-amber-300 text-sm px-2 py-1 rounded bg-amber-100/80 dark:bg-amber-900/30 border border-amber-300/50">
-                  Atenção:{" "}
-                  {debug.lowConfidenceReason || "Baixa confiança na detecção automática."}
+                  Atenção: {debug.lowConfidenceReason || "Baixa confiança na detecção automática."}
                 </span>
               )}
             </div>
@@ -1172,10 +1189,8 @@ export default function PlanilhaOficial() {
             Mapeamento manual de colunas
           </h3>
           <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mb-4">
-            <strong>O que é “fallback do WhatsApp”?</strong> Se o campo{" "}
-            <em>Telefone</em> estiver vazio ou inválido, o sistema tenta usar o número da coluna
-            mapeada como <em>WhatsApp</em>. Se o WhatsApp for válido, ele assume como telefone de
-            saída; se também for inválido, a linha é deletada por ausência de número válido.
+            <strong>O que é “fallback do WhatsApp”?</strong> Se o campo <em>Telefone</em> estiver vazio ou inválido,
+            o sistema tenta usar o número da coluna mapeada como <em>WhatsApp</em>.
           </p>
 
           <div className="flex items-center gap-3 mb-4">
@@ -1183,14 +1198,9 @@ export default function PlanilhaOficial() {
               id="hasHeader"
               type="checkbox"
               checked={mapUI.hasHeader}
-              onChange={(e) =>
-                setMapUI((p) => ({ ...p, hasHeader: e.target.checked }))
-              }
+              onChange={(e) => setMapUI((p) => ({ ...p, hasHeader: e.target.checked }))}
             />
-            <label
-              htmlFor="hasHeader"
-              className="text-sm text-blue-900 dark:text-blue-100"
-            >
+            <label htmlFor="hasHeader" className="text-sm text-blue-900 dark:text-blue-100">
               Minha planilha possui <strong>cabeçalho na primeira linha</strong>
             </label>
           </div>
@@ -1280,9 +1290,7 @@ export default function PlanilhaOficial() {
               </div>
               {debug.headerDetected && (
                 <>
-                  <div className="mt-2">
-                    <strong>Header (linha 1):</strong>
-                  </div>
+                  <div className="mt-2"><strong>Header (linha 1):</strong></div>
                   <pre className="text-xs whitespace-pre-wrap mt-1">
                     {JSON.stringify(debug.headerRow, null, 2)}
                   </pre>
@@ -1290,9 +1298,7 @@ export default function PlanilhaOficial() {
               )}
             </div>
             <div className="p-3 rounded bg-white/70 dark:bg-black/20 border border-amber-200/60 dark:border-amber-500/30">
-              <div>
-                <strong>Mapeamento por header/heurística:</strong>
-              </div>
+              <div><strong>Mapeamento por header/heurística:</strong></div>
               <pre className="text-xs whitespace-pre-wrap mt-1">
                 {JSON.stringify(debug.headerMap, null, 2)}
               </pre>
@@ -1303,9 +1309,7 @@ export default function PlanilhaOficial() {
               )}
             </div>
             <div className="p-3 rounded bg-white/70 dark:bg-black/20 border border-amber-200/60 dark:border-amber-500/30">
-              <div>
-                <strong>Mapeamento (heurística bruta):</strong>
-              </div>
+              <div><strong>Mapeamento (heurística bruta):</strong></div>
               <pre className="text-xs whitespace-pre-wrap mt-1">
                 {JSON.stringify(debug.guessedMap, null, 2)}
               </pre>
@@ -1314,9 +1318,7 @@ export default function PlanilhaOficial() {
 
           {debug.sampleExtract.length > 0 && (
             <div className="mt-6">
-              <div className="font-semibold mb-2">
-                Amostra (até 10 primeiras linhas tratadas):
-              </div>
+              <div className="font-semibold mb-2">Amostra (até 10 primeiras linhas tratadas):</div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
@@ -1351,18 +1353,12 @@ export default function PlanilhaOficial() {
                         <td className="p-2">{r.whatsapp}</td>
                         <td className="p-2">{r.telDigits}</td>
                         <td className="p-2">{r.waDigits}</td>
-                        <td className="p-2">
-                          {r.telValid ? "✔️" : r.telValid === false ? "❌" : ""}
-                        </td>
-                        <td className="p-2">
-                          {r.waValid ? "✔️" : r.waValid === false ? "❌" : ""}
-                        </td>
+                        <td className="p-2">{r.telValid ? "✔️" : r.telValid === false ? "❌" : ""}</td>
+                        <td className="p-2">{r.waValid ? "✔️" : r.waValid === false ? "❌" : ""}</td>
                         <td className="p-2">{r.chosen}</td>
                         <td className="p-2">{r.chosenSource || ""}</td>
                         <td className="p-2">{r.email}</td>
-                        <td className="p-2">
-                          {r.emailValid ? "✔️" : r.emailValid === false ? "❌" : ""}
-                        </td>
+                        <td className="p-2">{r.emailValid ? "✔️" : r.emailValid === false ? "❌" : ""}</td>
                         <td className="p-2">{r.emailOut}</td>
                         <td className="p-2">{r.pontosRaw}</td>
                         <td className="p-2">{r.pontosOut}</td>
@@ -1373,8 +1369,7 @@ export default function PlanilhaOficial() {
                 </table>
               </div>
               <p className="text-[11px] opacity-80 mt-2">
-                Dica: Email inválido e Pontos com símbolos são apagados/sanitizados sem deletar a
-                linha.
+                Dica: Email inválido e Pontos com símbolos são apagados/sanitizados sem deletar a linha.
               </p>
             </div>
           )}
@@ -1396,7 +1391,6 @@ export default function PlanilhaOficial() {
               <Stat label="Válidas" value={report.totalValidas} positive />
             </div>
 
-            {/* 📋 Registros Deletados */}
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-bold text-rose-600 dark:text-rose-400 text-lg">
                 📋 Registros Deletados
@@ -1413,10 +1407,12 @@ export default function PlanilhaOficial() {
               <div className="mb-4">
                 <button
                   onClick={handleDownloadDeleted}
-                  className="w-full px-6 py-4 bg-gradient-to-r from-red-100/80 dark:from-red-600/30 to-rose-100/80 dark:to-rose-600/30 hover:from-red-200/80 dark:hover:from-red-600/40 hover:to-rose-200/80 dark:hover:to-rose-600/40 text-red-700 dark:text-red-200 border border-red-300/60 dark:border-red-500/40 rounded-xl font-medium transition-all duração-200 flex items-center justify-center gap-2"
+                  className="w-full px-6 py-4 bg-gradient-to-r from-red-100/80 dark:from-red-600/30 to-rose-100/80 dark:to-rose-600/30 hover:from-red-200/80 dark:hover:from-red-600/40 hover:to-rose-200/80 dark:hover:to-rose-600/40 text-red-700 dark:text-red-200 border border-red-300/60 dark:border-red-500/40 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2"
                 >
                   <span>📥</span>
-                  Baixar registros deletados (.csv)
+                  {deletedParts.length > 1
+                    ? `Baixar registros deletados (.zip) (${deletedParts.length})`
+                    : "Baixar registros deletados (.csv)"}
                 </button>
               </div>
             )}
@@ -1424,34 +1420,13 @@ export default function PlanilhaOficial() {
             {showDeletedSummary && (
               <>
                 <div className="space-y-3 mb-4">
-                  <Item
-                    label="Telefone inválido"
-                    value={report.deletadas.invalid_telefone}
-                  />
-                  <Item
-                    label="WhatsApp inválido"
-                    value={report.deletadas.invalid_whatsapp}
-                  />
-                  <Item
-                    label="Telefone e WhatsApp inválidos"
-                    value={report.deletadas.invalid_both}
-                  />
-                  <Item
-                    label="Sem número válido"
-                    value={report.deletadas.no_valid_number}
-                  />
-                  <Item
-                    label="Emails inválidos (apagados do campo)"
-                    value={report.deletadas.invalid_email}
-                  />
-                  <Item
-                    label="Pontos inválidos (sanitizados)"
-                    value={report.deletadas.invalid_points}
-                  />
-                  <Item
-                    label="Usou fallback do WhatsApp (aproveitados)"
-                    value={report.deletadas.used_whatsapp_fallback}
-                  />
+                  <Item label="Telefone inválido" value={report.deletadas.invalid_telefone} />
+                  <Item label="WhatsApp inválido" value={report.deletadas.invalid_whatsapp} />
+                  <Item label="Telefone e WhatsApp inválidos" value={report.deletadas.invalid_both} />
+                  <Item label="Sem número válido" value={report.deletadas.no_valid_number} />
+                  <Item label="Emails inválidos (apagados do campo)" value={report.deletadas.invalid_email} />
+                  <Item label="Pontos inválidos (sanitizados)" value={report.deletadas.invalid_points} />
+                  <Item label="Usou fallback do WhatsApp (aproveitados)" value={report.deletadas.used_whatsapp_fallback} />
                 </div>
 
                 {hasDeleted && (
@@ -1492,36 +1467,37 @@ export default function PlanilhaOficial() {
             {outputParts.length > 0 ? (
               <>
                 <button
-                  onClick={() => openSaveModal("allParts")}
+                  onClick={() => openSaveModal({ kind: "allZip" })}
                   className="w-full rounded-xl px-8 py-6 font-bold text-lg transition-all duration-300 bg-gradient-to-r from-purple-600 via-violet-600 to-purple-600 text-white hover:from-purple-500 hover:via-violet-500 hover:to-purple-500 shadow-[0_8px_32px_rgba(139,92,246,0.4)] hover:shadow-[0_12px_48px_rgba(139,92,246,0.6)] transform hover:scale-[1.02]"
                   disabled={!hasResult}
                 >
-                  📦 Salvar dados e baixar TODAS as partes ({outputParts.length})
+                  📦 Salvar dados e baixar TODAS as partes (.zip) ({outputParts.length})
                 </button>
 
                 <div className="text-sm text-blue-700 dark:text-blue-300 p-4 bg-gradient-to-r from-blue-100/80 dark:from-blue-900/30 to-purple-100/80 dark:to-purple-900/30 border border-blue-300/60 dark:border-blue-600/30 rounded-xl">
-                  Foram geradas{" "}
-                  <span className="font-bold">{outputParts.length}</span> partes (máx. 5.000
-                  registros por parte).
+                  Foram geradas <span className="font-bold">{outputParts.length}</span> partes (máx. 5.000 registros por parte).
+                  <div className="text-xs opacity-80 mt-1">
+                    (Agora o botão acima baixa tudo em <strong>.zip</strong>, evitando travar em apenas 1 download.)
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   {outputParts.map((p, idx) => (
                     <button
                       key={idx}
-                      onClick={() => triggerDownloadBlob(p.blob, p.name)}
+                      onClick={() => openSaveModal({ kind: "part", partIndex: idx })}
                       className="px-3 py-2 bg-gradient-to-r from-gray-200/80 dark:from-slate-700/60 to-purple-200/80 dark:to-slate-600/60 hover:from-gray-300/80 dark:hover:from-slate-600/80 hover:to-purple-300/80 dark:hover:to-slate-500/80 text-gray-700 dark:text-gray-200 rounded-lg font-medium transition-all duration-200 border border-gray-300/50 dark:border-slate-500/30"
                     >
-                      Baixar parte {idx + 1} (sem salvar)
+                      Salvar dados e baixar parte {idx + 1}
                     </button>
                   ))}
                 </div>
               </>
             ) : (
               <button
-                onClick={() => openSaveModal("single")}
+                onClick={() => openSaveModal({ kind: "single" })}
                 disabled={!hasResult}
-                className={`w-full rounded-xl px-8 py-6 font-bold text-lg transition-all duração-300 ${
+                className={`w-full rounded-xl px-8 py-6 font-bold text-lg transition-all duration-300 ${
                   hasResult
                     ? "bg-gradient-to-r from-purple-600 via-violet-600 to-purple-600 text-white hover:from-purple-500 hover:via-violet-500 hover:to-purple-500 shadow-[0_8px_32px_rgba(139,92,246,0.4)] hover:shadow-[0_12px_48px_rgba(139,92,246,0.6)] transform hover:scale-[1.02]"
                     : "bg-gray-300/60 dark:bg-slate-600/40 text-gray-500 dark:text-slate-400 cursor-not-allowed"
