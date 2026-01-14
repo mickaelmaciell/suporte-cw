@@ -26,6 +26,9 @@ const REJECT_OBVIOUS_FAKE = true;
 /** Modo de saída do telefone: "br" | "digits" | "e164" */
 const PHONE_OUT_MODE = "br";
 
+/* ✅ NOVO: regra do DDD 00 */
+const REJECT_DDD_00 = true;
+
 /* ========== DDDs válidos (usado só se STRICT_DDD=true) ========== */
 const VALID_DDDS = new Set([
   "11","12","13","14","15","16","17","18","19",
@@ -48,24 +51,86 @@ function isObviousFake(s) {
   return false;
 }
 
+/* ✅ NOVO: remove prefixos de discagem antes de validar/formatar
+   Exemplos que isso conserta:
+   - 0085999999999  -> 85999999999
+   - 02185999999999 -> 85999999999
+   - 00215585999999999 -> 85999999999 (mantém o DDD real)
+*/
+function stripBrazilDialPrefixes(digits) {
+  let s = onlyDigits(digits);
+
+  if (!s) return "";
+
+  // 1) Se veio com "00...55..." (internacional + operadora + 55 + DDD + número)
+  // ou "0...55..." (0 + operadora + 55 + DDD + número)
+  if (s.length > 11 && (s.startsWith("00") || s.startsWith("0"))) {
+    const idx55 = s.indexOf("55");
+    // normalmente "55" aparece bem no começo nesses casos (ex.: 0021 55 85...)
+    if (idx55 >= 1 && idx55 <= 6) {
+      const after55 = s.slice(idx55 + 2);
+      if (after55.length >= 10) s = after55;
+    }
+  }
+
+  // 2) Se começou com 55 e tem lixo junto
+  if (s.startsWith("55") && s.length > 11) {
+    s = s.slice(2);
+  }
+
+  // 3) Se parece "0 + operadora(2) + DDD + número" (muito comum)
+  // Ex.: 02185999999999 (14) -> remove "021"
+  if (s.length > 11 && s[0] === "0" && s[1] !== "0" && s.length >= 13) {
+    const candidate = s.slice(3);
+    if (candidate.length >= 10) s = candidate;
+  }
+
+  // 4) Remove zeros extras à esquerda enquanto estiver "comprido demais"
+  // Ex.: 0085999999999 (13) -> 085999999999 (12) -> 85999999999 (11)
+  while (s.length > 11 && s.startsWith("0")) {
+    s = s.slice(1);
+  }
+
+  return s;
+}
+
 /* ========== Normalização + Validação (mobile only) ========== */
 function normalizeMobileDigits(number) {
-  let s = onlyDigits(number);
-  if (s.startsWith("55")) s = s.slice(2);
+  let s = stripBrazilDialPrefixes(number);
+
+  // se ainda tiver 55 e estiver maior que 11, remove 55
+  if (s.startsWith("55") && s.length > 11) s = s.slice(2);
+
+  // inferir 9 se vier 10 dígitos
   if (INFER_MISSING_9 && s.length === 10) {
     s = s.slice(0, 2) + "9" + s.slice(2);
   }
+
   return s;
 }
+
+/** ✅ DDD 00 só se, APÓS limpar prefixos, o DDD ainda for "00" */
+function hasDDD00(number) {
+  const s = normalizeMobileDigits(number);
+  return s.length >= 2 && s.slice(0, 2) === "00";
+}
+
 function isValidBrazilianMobile(number) {
   const s = normalizeMobileDigits(number);
   if (s.length !== 11) return false;
+
   const ddd = s.slice(0, 2);
   const subscriber = s.slice(2);
+
+  // ✅ regra principal: DDD 00 é inválido
+  if (REJECT_DDD_00 && ddd === "00") return false;
+
   if (STRICT_DDD && !VALID_DDDS.has(ddd)) return false;
   if (REJECT_OBVIOUS_FAKE && (isObviousFake(s) || isObviousFake(subscriber))) return false;
+
   return subscriber[0] === "9"; // só celular
 }
+
 function formatBrazilianNumber(number, mode = PHONE_OUT_MODE) {
   let s = normalizeMobileDigits(number);
   if (mode === "digits") return s || "";
@@ -186,6 +251,7 @@ function guessIndexesByContent(rows, sampleSize = 150) {
       const looks10or11 = digits.startsWith("55")
         ? [10, 11].includes(digits.slice(2).length)
         : [10, 11].includes(digits.length);
+
       if (isValidBrazilianMobile(v)) score[c].phone += 6;
       else if (looks10or11) score[c].phone += 3;
       else if (/\d/.test(v)) score[c].phone += 0.2;
@@ -284,6 +350,7 @@ export default function PlanilhaOficial() {
       invalid_email: 0,   // não deleta (info)
       invalid_points: 0,  // não deleta (info)
       used_whatsapp_fallback: 0, // info
+      ddd_00: 0, // ✅ novo motivo
     },
     linhasDeletadas: [],
   });
@@ -367,6 +434,7 @@ export default function PlanilhaOficial() {
         invalid_email: 0,
         invalid_points: 0,
         used_whatsapp_fallback: 0,
+        ddd_00: 0,
       },
       linhasDeletadas: [],
     });
@@ -411,8 +479,6 @@ export default function PlanilhaOficial() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-
-    // ✅ revogar com atraso evita falhas em alguns navegadores
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
@@ -425,46 +491,31 @@ export default function PlanilhaOficial() {
     }
   }
 
-  // ✅ Baixar uma parte específica
   function handleDownloadPart(idx) {
     const p = outputParts[idx];
     if (!p) return;
     triggerDownloadBlob(p.blob, p.name);
   }
 
-  // ✅ NOVO: Baixar TODAS as partes em ZIP (resolve “só baixa a primeira”)
   async function handleDownloadAllPartsZip() {
     if (!outputParts.length) return;
-
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
-
-    // adiciona cada parte no zip
-    outputParts.forEach((p) => {
-      zip.file(p.name, p.blob);
-    });
-
+    outputParts.forEach((p) => zip.file(p.name, p.blob));
     const zipBlob = await zip.generateAsync({ type: "blob" });
     const base = baseFromCsvName(fileName, "clientes_processados.csv");
     triggerDownloadBlob(zipBlob, `${base}_partes.zip`);
   }
 
-  // ✅ Melhorado: deletados em ZIP quando houver mais de 1 parte
   async function handleDownloadDeleted() {
     if (!deletedParts.length) return;
-
     if (deletedParts.length === 1) {
       triggerDownloadBlob(deletedParts[0].blob, deletedParts[0].name);
       return;
     }
-
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
-
-    deletedParts.forEach((p) => {
-      zip.file(p.name, p.blob);
-    });
-
+    deletedParts.forEach((p) => zip.file(p.name, p.blob));
     const zipBlob = await zip.generateAsync({ type: "blob" });
     const base = baseFromCsvName(fileName, "clientes_processados.csv");
     triggerDownloadBlob(zipBlob, `${base}_deletados.zip`);
@@ -520,8 +571,6 @@ export default function PlanilhaOficial() {
       csvCorrigida: fullOutputCSV || outputCSV || "",
     };
 
-    // ⚠️ no-cors não permite ler resposta, mas envia.
-    // Mantemos como você já tinha; e mesmo se falhar, não trava download.
     try {
       await fetch(SIMPLE_DB_WEB_APP_URL, {
         method: "POST",
@@ -532,17 +581,11 @@ export default function PlanilhaOficial() {
       console.error("Erro ao enviar para o banco:", err);
     }
 
-    // ✅ DOWNLOADS corrigidos
     try {
       const kind = pendingDownloadAction?.kind;
-
-      if (kind === "single") {
-        handleDownloadSingle();
-      } else if (kind === "allZip") {
-        await handleDownloadAllPartsZip();
-      } else if (kind === "part") {
-        handleDownloadPart(pendingDownloadAction.partIndex);
-      }
+      if (kind === "single") handleDownloadSingle();
+      else if (kind === "allZip") await handleDownloadAllPartsZip();
+      else if (kind === "part") handleDownloadPart(pendingDownloadAction.partIndex);
     } finally {
       setSaveModalOpen(false);
       setPendingDownloadAction(null);
@@ -784,6 +827,7 @@ export default function PlanilhaOficial() {
         invalid_email: 0,
         invalid_points: 0,
         used_whatsapp_fallback: 0,
+        ddd_00: 0,
       };
 
       const linhasDeletadas = [];
@@ -813,10 +857,17 @@ export default function PlanilhaOficial() {
 
         const telHas = Boolean(softTrim(telefoneRaw));
         const waHas = Boolean(softTrim(whatsappRaw));
+
+        // ✅ DDD 00 somente se permanecer DDD 00 após limpar prefixos
+        const telDDD00 = telHas && hasDDD00(telefoneRaw);
+        const waDDD00 = waHas && hasDDD00(whatsappRaw);
+
         const telOk = telHas && isValidBrazilianMobile(telefoneRaw);
         const waOk = waHas && isValidBrazilianMobile(whatsappRaw);
 
-        if (telOk) {
+        if (REJECT_DDD_00 && (telDDD00 || waDDD00)) {
+          reason = "ddd_00";
+        } else if (telOk) {
           finalPhone = formatBrazilianNumber(telefoneRaw);
           chosenSource = "telefone";
         } else if (!telHas && waOk) {
@@ -1420,6 +1471,7 @@ export default function PlanilhaOficial() {
             {showDeletedSummary && (
               <>
                 <div className="space-y-3 mb-4">
+                  <Item label="DDD 00 (removidos)" value={report.deletadas.ddd_00} />
                   <Item label="Telefone inválido" value={report.deletadas.invalid_telefone} />
                   <Item label="WhatsApp inválido" value={report.deletadas.invalid_whatsapp} />
                   <Item label="Telefone e WhatsApp inválidos" value={report.deletadas.invalid_both} />
@@ -1547,7 +1599,7 @@ function Stat({ label, value, positive }) {
       className={`text-center p-6 rounded-xl border ${
         positive
           ? "bg-gradient-to-br from-emerald-100/80 dark:from-emerald-600/20 to-green-100/80 dark:to-green-600/20 border-emerald-300/50 dark:border-emerald-500/30"
-          : "bg-gradient-to-br from-purple-100/80 dark:from-purple-600/20 to-violet-100/80 dark:to-violet-600/20 border-purple-300/50 dark:border-purple-500/30"
+          : "bg-gradient-to-br from-purple-100/80 dark:from-purple-600/20 to-violet-100/80 dark:to\db- violet-600/20 border-purple-300/50 dark:border-purple-500/30"
       }`}
     >
       <div
